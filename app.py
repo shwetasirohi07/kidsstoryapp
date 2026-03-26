@@ -728,29 +728,58 @@ if st.button("🪄 Create My Story! ✨"):
     narration_data = json.dumps({
         "title": title,
         "paragraphs": story_paragraphs,
-        "animations": [{"url": a[0], "caption": a[1]} for a in animations],
         "moods": moods,
         "theme": theme,
     })
 
-    # Complete HTML/JS component — Lottie animations + storytelling voice
-    audio_html = f"""
-    <script src="https://unpkg.com/@lottiefiles/lottie-player@2.0.8/dist/lottie-player.js"></script>
+    # Animated scene definitions per theme (pure CSS — no external deps)
+    theme_scenes_json = json.dumps({
+        "Friendship": [
+            {"bg": "linear-gradient(135deg, #fce4ec 0%, #f8bbd0 50%, #fff9c4 100%)", "chars": [{"e":"👧","x":15,"y":35,"s":4,"a":"bounce"},{"e":"💕","x":42,"y":15,"s":3.5,"a":"pulse"},{"e":"👦","x":68,"y":35,"s":4,"a":"bounce"},{"e":"🌸","x":8,"y":65,"s":2,"a":"float"},{"e":"🌻","x":85,"y":55,"s":2.5,"a":"swing"},{"e":"🦋","x":55,"y":60,"s":2,"a":"fly"},{"e":"⭐","x":30,"y":8,"s":1.5,"a":"sparkle"}], "caption": "Best friends together! 💕"},
+            {"bg": "linear-gradient(135deg, #e1f5fe 0%, #b3e5fc 50%, #fce4ec 100%)", "chars": [{"e":"🤝","x":42,"y":30,"s":5,"a":"pulse"},{"e":"🌈","x":35,"y":5,"s":3,"a":"float"},{"e":"🧒","x":20,"y":45,"s":3.5,"a":"wave"},{"e":"🧒","x":62,"y":45,"s":3.5,"a":"wave"},{"e":"🎈","x":10,"y":15,"s":2.5,"a":"float"},{"e":"🎈","x":80,"y":10,"s":2,"a":"float"}], "caption": "Making wonderful friends! 🤝"},
+            {"bg": "linear-gradient(135deg, #f3e5f5 0%, #e1bee7 50%, #fce4ec 100%)", "chars": [{"e":"🎁","x":42,"y":25,"s":4.5,"a":"bounce"},{"e":"🎈","x":15,"y":10,"s":3,"a":"float"},{"e":"🎈","x":75,"y":8,"s":2.5,"a":"float"},{"e":"😊","x":25,"y":50,"s":3.5,"a":"wave"},{"e":"😄","x":60,"y":50,"s":3.5,"a":"wave"},{"e":"🎀","x":50,"y":65,"s":2,"a":"swing"}], "caption": "Sharing is caring! 🎁"},
+            {"bg": "linear-gradient(135deg, #fff8e1 0%, #ffecb3 50%, #fce4ec 100%)", "chars": [{"e":"🏡","x":40,"y":25,"s":5,"a":"pulse"},{"e":"🌳","x":8,"y":30,"s":4,"a":"swing"},{"e":"🌳","x":78,"y":30,"s":4,"a":"swing"},{"e":"☀️","x":75,"y":5,"s":3,"a":"spin"},{"e":"🦋","x":30,"y":55,"s":2.5,"a":"fly"},{"e":"🐦","x":60,"y":15,"s":2,"a":"fly"}], "caption": "Happily ever after! 🏡"},
+        ],
+        "Magic": [
+            {"bg": "linear-gradient(135deg, #ede7f6 0%, #d1c4e9 50%, #e8eaf6 100%)", "chars": [{"e":"🧙‍♂️","x":20,"y":30,"s":4.5,"a":"wave"},{"e":"✨","x":45,"y":15,"s":3,"a":"sparkle"},{"e":"🪄","x":40,"y":40,"s":3.5,"a":"swing"},{"e":"⭐","x":65,"y":10,"s":2,"a":"sparkle"},{"e":"⭐","x":80,"y":25,"s":1.5,"a":"sparkle"},{"e":"🌙","x":75,"y":5,"s":2.5,"a":"float"}], "caption": "A wizard casting spells ✨"},
+            {"bg": "linear-gradient(135deg, #e8eaf6 0%, #c5cae9 50%, #f3e5f5 100%)", "chars": [{"e":"🦄","x":35,"y":30,"s":5,"a":"bounce"},{"e":"🌈","x":30,"y":5,"s":3.5,"a":"float"},{"e":"✨","x":55,"y":15,"s":2.5,"a":"sparkle"},{"e":"🌸","x":70,"y":50,"s":2.5,"a":"swing"},{"e":"💜","x":60,"y":60,"s":2,"a":"pulse"},{"e":"🔮","x":80,"y":30,"s":3,"a":"pulse"}], "caption": "A magical unicorn! 🦄"},
+            {"bg": "linear-gradient(135deg, #fce4ec 0%, #f3e5f5 50%, #e8eaf6 100%)", "chars": [{"e":"🧚","x":40,"y":25,"s":4.5,"a":"fly"},{"e":"✨","x":20,"y":15,"s":2.5,"a":"sparkle"},{"e":"✨","x":60,"y":10,"s":2,"a":"sparkle"},{"e":"✨","x":75,"y":20,"s":1.5,"a":"sparkle"},{"e":"🌸","x":15,"y":55,"s":3,"a":"float"},{"e":"💖","x":45,"y":55,"s":2.5,"a":"pulse"}], "caption": "An enchanted fairy! 🧚"},
+            {"bg": "linear-gradient(135deg, #1a237e 0%, #283593 50%, #311b92 100%)", "chars": [{"e":"🔮","x":40,"y":25,"s":5,"a":"pulse"},{"e":"⭐","x":10,"y":10,"s":2,"a":"sparkle"},{"e":"⭐","x":25,"y":55,"s":1.5,"a":"sparkle"},{"e":"⭐","x":65,"y":8,"s":2.5,"a":"sparkle"},{"e":"⭐","x":80,"y":45,"s":1.8,"a":"sparkle"},{"e":"🪄","x":55,"y":45,"s":3,"a":"swing"}], "caption": "A glowing magical potion! 🔮"},
+        ],
+        "Animals": [
+            {"bg": "linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 50%, #fff9c4 100%)", "chars": [{"e":"🐰","x":25,"y":35,"s":4.5,"a":"bounce"},{"e":"🥕","x":45,"y":50,"s":2.5,"a":"wiggle"},{"e":"🌿","x":10,"y":55,"s":3,"a":"swing"},{"e":"🌲","x":80,"y":20,"s":4,"a":"swing"},{"e":"🦋","x":60,"y":10,"s":2.5,"a":"fly"},{"e":"☀️","x":85,"y":5,"s":2.5,"a":"spin"}], "caption": "A cute bunny hopping! 🐰"},
+            {"bg": "linear-gradient(135deg, #fff3e0 0%, #ffe0b2 50%, #e8f5e9 100%)", "chars": [{"e":"🐻","x":35,"y":30,"s":5,"a":"wave"},{"e":"🍯","x":55,"y":45,"s":3,"a":"wiggle"},{"e":"🌲","x":8,"y":25,"s":4,"a":"swing"},{"e":"🌲","x":78,"y":25,"s":3.5,"a":"swing"},{"e":"🐝","x":65,"y":15,"s":2,"a":"fly"},{"e":"🍄","x":50,"y":60,"s":2,"a":"bounce"}], "caption": "A friendly bear! 🐻"},
+            {"bg": "linear-gradient(135deg, #e8f5e9 0%, #a5d6a7 50%, #fff8e1 100%)", "chars": [{"e":"🦊","x":40,"y":30,"s":4.5,"a":"bounce"},{"e":"🌲","x":10,"y":20,"s":4.5,"a":"swing"},{"e":"🌲","x":75,"y":20,"s":4,"a":"swing"},{"e":"🍂","x":30,"y":55,"s":2,"a":"float"},{"e":"🍄","x":60,"y":55,"s":2.5,"a":"wiggle"},{"e":"🐦","x":50,"y":8,"s":2,"a":"fly"}], "caption": "A clever fox in the forest! 🦊"},
+            {"bg": "linear-gradient(135deg, #e1f5fe 0%, #b3e5fc 50%, #e8f5e9 100%)", "chars": [{"e":"🦋","x":25,"y":20,"s":3.5,"a":"fly"},{"e":"🦋","x":55,"y":15,"s":3,"a":"fly"},{"e":"🦋","x":40,"y":35,"s":4,"a":"fly"},{"e":"🌸","x":15,"y":50,"s":3,"a":"float"},{"e":"🌸","x":70,"y":45,"s":2.5,"a":"float"},{"e":"🌻","x":45,"y":55,"s":3,"a":"swing"}], "caption": "Beautiful butterflies! 🦋"},
+        ],
+        "Adventure": [
+            {"bg": "linear-gradient(135deg, #fff3e0 0%, #ffe0b2 50%, #e1f5fe 100%)", "chars": [{"e":"🧒","x":20,"y":35,"s":4,"a":"bounce"},{"e":"🎒","x":30,"y":40,"s":2.5,"a":"wiggle"},{"e":"🗺️","x":55,"y":30,"s":4,"a":"pulse"},{"e":"⛰️","x":75,"y":20,"s":4.5,"a":"pulse"},{"e":"☀️","x":85,"y":5,"s":3,"a":"spin"},{"e":"🦅","x":60,"y":8,"s":2.5,"a":"fly"}], "caption": "Setting off on adventure! 🎒"},
+            {"bg": "linear-gradient(135deg, #e1f5fe 0%, #b3e5fc 50%, #fff9c4 100%)", "chars": [{"e":"⛵","x":35,"y":35,"s":5,"a":"swing"},{"e":"🌊","x":10,"y":55,"s":3,"a":"wave"},{"e":"🌊","x":50,"y":55,"s":3,"a":"wave"},{"e":"🌊","x":80,"y":55,"s":3,"a":"wave"},{"e":"☁️","x":15,"y":8,"s":3,"a":"float"},{"e":"🐬","x":70,"y":45,"s":2.5,"a":"bounce"}], "caption": "Sailing the seas! ⛵"},
+            {"bg": "linear-gradient(135deg, #e8eaf6 0%, #c5cae9 50%, #ffffff 100%)", "chars": [{"e":"🏔️","x":30,"y":15,"s":5.5,"a":"pulse"},{"e":"🏔️","x":60,"y":20,"s":4.5,"a":"pulse"},{"e":"🧗","x":45,"y":35,"s":3.5,"a":"bounce"},{"e":"🦅","x":20,"y":10,"s":2.5,"a":"fly"},{"e":"☁️","x":10,"y":5,"s":2.5,"a":"float"},{"e":"☁️","x":75,"y":8,"s":2,"a":"float"}], "caption": "Climbing the mountains! 🏔️"},
+            {"bg": "linear-gradient(135deg, #fff8e1 0%, #ffecb3 50%, #ffe0b2 100%)", "chars": [{"e":"💎","x":40,"y":30,"s":5,"a":"sparkle"},{"e":"📦","x":42,"y":42,"s":4,"a":"wiggle"},{"e":"⭐","x":20,"y":15,"s":2,"a":"sparkle"},{"e":"⭐","x":65,"y":10,"s":1.5,"a":"sparkle"},{"e":"🗝️","x":25,"y":50,"s":3,"a":"swing"},{"e":"🎉","x":60,"y":55,"s":2.5,"a":"bounce"}], "caption": "Hidden treasure found! 💎"},
+        ],
+        "Princess": [
+            {"bg": "linear-gradient(135deg, #fce4ec 0%, #f8bbd0 50%, #fff9c4 100%)", "chars": [{"e":"👸","x":35,"y":30,"s":5,"a":"bounce"},{"e":"✨","x":50,"y":10,"s":2.5,"a":"sparkle"},{"e":"💎","x":20,"y":15,"s":2,"a":"sparkle"},{"e":"👑","x":38,"y":10,"s":2.5,"a":"float"},{"e":"🌹","x":65,"y":50,"s":3,"a":"swing"},{"e":"🎀","x":15,"y":55,"s":2.5,"a":"wiggle"}], "caption": "A beautiful princess! 👸"},
+            {"bg": "linear-gradient(135deg, #e8eaf6 0%, #c5cae9 50%, #fce4ec 100%)", "chars": [{"e":"🏰","x":35,"y":20,"s":6,"a":"pulse"},{"e":"🏳️","x":42,"y":5,"s":2,"a":"wave"},{"e":"⭐","x":10,"y":8,"s":2,"a":"sparkle"},{"e":"⭐","x":75,"y":10,"s":1.5,"a":"sparkle"},{"e":"🌹","x":20,"y":55,"s":2.5,"a":"swing"},{"e":"🦢","x":80,"y":45,"s":3,"a":"float"}], "caption": "A grand shining castle! 🏰"},
+            {"bg": "linear-gradient(135deg, #fff9c4 0%, #fff59d 50%, #fce4ec 100%)", "chars": [{"e":"👑","x":38,"y":20,"s":5.5,"a":"pulse"},{"e":"💎","x":25,"y":30,"s":2.5,"a":"sparkle"},{"e":"💎","x":55,"y":30,"s":2.5,"a":"sparkle"},{"e":"💎","x":40,"y":42,"s":2,"a":"sparkle"},{"e":"✨","x":15,"y":10,"s":2,"a":"sparkle"},{"e":"🌟","x":80,"y":35,"s":2.5,"a":"pulse"}], "caption": "A sparkling crown! 👑"},
+            {"bg": "linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 50%, #fce4ec 100%)", "chars": [{"e":"🌹","x":30,"y":25,"s":4,"a":"float"},{"e":"🌹","x":55,"y":30,"s":4,"a":"float"},{"e":"🌸","x":15,"y":40,"s":3,"a":"swing"},{"e":"🌸","x":70,"y":35,"s":3,"a":"swing"},{"e":"🦋","x":45,"y":10,"s":3,"a":"fly"},{"e":"⛲","x":45,"y":50,"s":4,"a":"pulse"}], "caption": "A magical royal garden! 🌹"},
+        ],
+        "Space": [
+            {"bg": "linear-gradient(135deg, #1a237e 0%, #0d47a1 50%, #311b92 100%)", "chars": [{"e":"🚀","x":35,"y":25,"s":5,"a":"bounce"},{"e":"⭐","x":10,"y":10,"s":2,"a":"sparkle"},{"e":"⭐","x":25,"y":55,"s":1.5,"a":"sparkle"},{"e":"⭐","x":65,"y":8,"s":2.5,"a":"sparkle"},{"e":"⭐","x":80,"y":40,"s":1.8,"a":"sparkle"},{"e":"💫","x":75,"y":55,"s":2,"a":"fly"}], "caption": "Rocket blasting into space! 🚀"},
+            {"bg": "linear-gradient(135deg, #0d47a1 0%, #1565c0 50%, #1a237e 100%)", "chars": [{"e":"👽","x":35,"y":30,"s":5,"a":"wave"},{"e":"🛸","x":60,"y":15,"s":4,"a":"float"},{"e":"⭐","x":10,"y":8,"s":2,"a":"sparkle"},{"e":"⭐","x":85,"y":10,"s":1.5,"a":"sparkle"},{"e":"🌑","x":80,"y":5,"s":3,"a":"pulse"},{"e":"💫","x":20,"y":50,"s":2,"a":"fly"}], "caption": "A friendly alien! 👽"},
+            {"bg": "linear-gradient(135deg, #311b92 0%, #4527a0 50%, #1a237e 100%)", "chars": [{"e":"🪐","x":35,"y":25,"s":5.5,"a":"spin"},{"e":"🌍","x":65,"y":40,"s":3.5,"a":"spin"},{"e":"⭐","x":10,"y":15,"s":2,"a":"sparkle"},{"e":"⭐","x":80,"y":8,"s":2,"a":"sparkle"},{"e":"✨","x":25,"y":55,"s":2,"a":"sparkle"},{"e":"☄️","x":75,"y":50,"s":2.5,"a":"fly"}], "caption": "Spinning planets and stars! 🪐"},
+            {"bg": "linear-gradient(135deg, #263238 0%, #37474f 50%, #1a237e 100%)", "chars": [{"e":"🌙","x":35,"y":15,"s":5.5,"a":"float"},{"e":"🧑\u200d🚀","x":45,"y":40,"s":4.5,"a":"bounce"},{"e":"⭐","x":10,"y":10,"s":2,"a":"sparkle"},{"e":"⭐","x":70,"y":5,"s":2.5,"a":"sparkle"},{"e":"⭐","x":85,"y":35,"s":1.8,"a":"sparkle"},{"e":"🏳️","x":55,"y":50,"s":2,"a":"wave"}], "caption": "Walking on the moon! 🌙"},
+        ],
+    })
 
+    # Complete HTML/JS component — CSS animations + storytelling voice
+    audio_html = f"""
     <div id="story-player" style="position:relative; z-index:1;">
-        <!-- Cartoon Animation Stage -->
-        <div class="lottie-stage" id="lottie-stage">
-            <lottie-player
-                id="lottie-anim"
-                src="{animations[0][0]}"
-                background="transparent"
-                speed="1"
-                loop
-                autoplay
-                style="width:100%; height:320px;">
-            </lottie-player>
+        <!-- Cartoon Animation Stage (Pure CSS Animated Scenes) -->
+        <div class="anim-stage" id="anim-stage">
+            <div class="anim-scene" id="anim-scene"></div>
         </div>
-        <div class="slide-caption" id="slide-caption">🎬 {animations[0][1]}</div>
+        <div class="slide-caption" id="slide-caption"></div>
 
         <!-- Currently reading paragraph -->
         <div class="narration-box" id="narration-box">
@@ -786,8 +815,8 @@ if st.button("🪄 Create My Story! ✨"):
 
     <script>
         const data = {narration_data};
+        const themeScenes = {theme_scenes_json};
         const paragraphs = data.paragraphs;
-        const animations = data.animations;
         const moods = data.moods;
         const storyTheme = data.theme;
         let currentPara = 0;
@@ -841,6 +870,32 @@ if st.button("🪄 Create My Story! ✨"):
             synth.onvoiceschanged = loadVoices;
         }}
         loadVoices();
+
+        // --- Render CSS-animated scene ---
+        function renderScene(sceneIdx) {{
+            const scenes = themeScenes[storyTheme];
+            if (!scenes || scenes.length === 0) return;
+            const idx = sceneIdx % scenes.length;
+            const scene = scenes[idx];
+            const stage = document.getElementById('anim-scene');
+            const container = document.getElementById('anim-stage');
+            container.style.background = scene.bg;
+            stage.innerHTML = scene.chars.map((c, i) =>
+                '<div class="anim-char anim-' + c.a + '" style="left:' + c.x + '%;top:' + c.y + '%;font-size:' + c.s + 'rem;animation-delay:' + (i * 0.15) + 's">' + c.e + '</div>'
+            ).join('');
+            document.getElementById('slide-caption').innerHTML = '🎬 ' + scene.caption;
+        }}
+
+        // --- Update animation for current paragraph ---
+        function updateAnimation(paraIndex) {{
+            const scenes = themeScenes[storyTheme];
+            if (!scenes || scenes.length === 0) return;
+            const sceneIdx = Math.floor((paraIndex / paragraphs.length) * scenes.length) % scenes.length;
+            renderScene(sceneIdx);
+        }}
+
+        // Render initial scene
+        renderScene(0);
 
         // --- Mood-based voice parameters for storytelling ---
         function getMoodParams(paraIndex, totalParas) {{
@@ -915,21 +970,7 @@ if st.button("🪄 Create My Story! ✨"):
             return enhanced;
         }}
 
-        // --- Update Lottie animation for current paragraph ---
-        function updateAnimation(paraIndex) {{
-            const animIdx = Math.floor((paraIndex / paragraphs.length) * animations.length) % animations.length;
-            const anim = animations[animIdx];
-            const player = document.getElementById('lottie-anim');
-            const caption = document.getElementById('slide-caption');
-
-            try {{
-                player.load(anim.url);
-                caption.innerHTML = '🎬 ' + anim.caption;
-            }} catch(e) {{
-                // Fallback: just update caption
-                caption.innerHTML = '🎬 ' + anim.caption;
-            }}
-        }}
+        // (updateAnimation defined above with renderScene)
 
         // --- Speak a paragraph with storytelling style ---
         function speakParagraph(index) {{
@@ -1015,15 +1056,47 @@ if st.button("🪄 Create My Story! ✨"):
     </script>
 
     <style>
-        .lottie-stage {{
+        .anim-stage {{
             width: 100%;
             max-width: 500px;
+            height: 320px;
             margin: 0.5rem auto;
             border-radius: 24px;
             overflow: hidden;
-            background: linear-gradient(135deg, #ffe0f0, #e0f0ff, #f0ffe0);
+            position: relative;
             box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+            background: linear-gradient(135deg, #ffe0f0, #e0f0ff, #f0ffe0);
+            transition: background 0.8s ease;
         }}
+        .anim-scene {{
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }}
+        .anim-char {{
+            position: absolute;
+            line-height: 1;
+            transition: all 0.5s ease;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));
+        }}
+        .anim-bounce {{ animation: ab 1.2s ease-in-out infinite; }}
+        .anim-float {{ animation: af 3s ease-in-out infinite; }}
+        .anim-spin {{ animation: as 4s linear infinite; }}
+        .anim-pulse {{ animation: ap 1.5s ease-in-out infinite; }}
+        .anim-wave {{ animation: aw 1s ease-in-out infinite; }}
+        .anim-fly {{ animation: afl 4s ease-in-out infinite; }}
+        .anim-wiggle {{ animation: awi 0.8s ease-in-out infinite; }}
+        .anim-swing {{ animation: asw 2s ease-in-out infinite; }}
+        .anim-sparkle {{ animation: asp 1.5s ease-in-out infinite; }}
+        @keyframes ab {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-25px); }} }}
+        @keyframes af {{ 0%, 100% {{ transform: translateY(0) rotate(0deg); }} 50% {{ transform: translateY(-18px) rotate(8deg); }} }}
+        @keyframes as {{ from {{ transform: rotate(0deg); }} to {{ transform: rotate(360deg); }} }}
+        @keyframes ap {{ 0%, 100% {{ transform: scale(1); opacity: 0.9; }} 50% {{ transform: scale(1.25); opacity: 1; }} }}
+        @keyframes aw {{ 0%, 100% {{ transform: rotate(-8deg); }} 50% {{ transform: rotate(8deg); }} }}
+        @keyframes afl {{ 0% {{ transform: translate(0,0); }} 25% {{ transform: translate(15px,-20px); }} 50% {{ transform: translate(30px,0); }} 75% {{ transform: translate(15px,20px); }} 100% {{ transform: translate(0,0); }} }}
+        @keyframes awi {{ 0%, 100% {{ transform: rotate(-5deg); }} 50% {{ transform: rotate(5deg); }} }}
+        @keyframes asw {{ 0%, 100% {{ transform: rotate(-5deg) translateY(0); }} 50% {{ transform: rotate(5deg) translateY(-8px); }} }}
+        @keyframes asp {{ 0%, 100% {{ opacity: 0.3; transform: scale(0.8); }} 50% {{ opacity: 1; transform: scale(1.4); }} }}
         .slide-caption {{
             text-align: center;
             font-family: 'Bubblegum Sans', cursive;
@@ -1031,6 +1104,7 @@ if st.button("🪄 Create My Story! ✨"):
             color: #7b1fa2;
             margin-top: 0.5rem;
             padding: 0 1rem;
+            min-height: 1.5em;
         }}
         .narration-box {{
             background: linear-gradient(135deg, #ede7f6, #e8eaf6);
