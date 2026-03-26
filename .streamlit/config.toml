@@ -8,6 +8,3 @@ gatherUsageStats = false
 
 [client]
 showErrorDetails = false
-
-[auth]
-enabled = false
