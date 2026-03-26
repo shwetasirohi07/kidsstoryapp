@@ -1,5 +1,7 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import random
+import json
 
 st.set_page_config(page_title="Kids Stories App", page_icon="📚", layout="centered")
 
@@ -308,6 +310,111 @@ st.markdown("""
         position: relative;
         z-index: 1;
     }
+
+    /* --- Image slideshow --- */
+    .slideshow-container {
+        position: relative;
+        width: 100%;
+        max-width: 600px;
+        margin: 1rem auto;
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+        z-index: 1;
+    }
+    .slideshow-container img {
+        width: 100%;
+        height: 350px;
+        object-fit: cover;
+        border-radius: 20px;
+        transition: opacity 1s ease-in-out;
+    }
+    .slide-caption {
+        text-align: center;
+        font-family: 'Bubblegum Sans', cursive;
+        font-size: 1.1rem;
+        color: #7b1fa2;
+        margin-top: 0.5rem;
+        padding: 0 1rem;
+    }
+
+    /* --- Audio player controls --- */
+    .audio-controls {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        margin: 1.2rem 0;
+        flex-wrap: wrap;
+        position: relative;
+        z-index: 1;
+    }
+    .audio-btn {
+        background: linear-gradient(135deg, #7b1fa2, #ab47bc);
+        color: white;
+        border: none;
+        border-radius: 50px;
+        padding: 12px 24px;
+        font-size: 1rem;
+        font-weight: 700;
+        font-family: 'Nunito', sans-serif;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+        box-shadow: 0 4px 15px rgba(123,31,162,0.3);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .audio-btn:hover {
+        transform: translateY(-2px) scale(1.05);
+        box-shadow: 0 6px 20px rgba(123,31,162,0.5);
+    }
+    .audio-btn.stop-btn {
+        background: linear-gradient(135deg, #c62828, #ef5350);
+        box-shadow: 0 4px 15px rgba(198,40,40,0.3);
+    }
+    .audio-btn.pause-btn {
+        background: linear-gradient(135deg, #f57c00, #ffb74d);
+        box-shadow: 0 4px 15px rgba(245,124,0,0.3);
+    }
+
+    /* --- Narration highlight box --- */
+    .narration-box {
+        background: linear-gradient(135deg, #ede7f6, #e8eaf6);
+        border-radius: 16px;
+        padding: 1rem 1.5rem;
+        margin: 0.8rem 0;
+        text-align: center;
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #4a148c;
+        border: 2px solid #ce93d8;
+        position: relative;
+        z-index: 1;
+    }
+    .narration-box .now-playing {
+        font-size: 0.85rem;
+        color: #9c27b0;
+        margin-bottom: 0.3rem;
+    }
+
+    /* --- Speed selector --- */
+    .speed-selector {
+        text-align: center;
+        margin: 0.5rem 0;
+        position: relative;
+        z-index: 1;
+    }
+    .speed-selector select {
+        padding: 6px 16px;
+        border-radius: 20px;
+        border: 2px solid #ce93d8;
+        font-family: 'Nunito', sans-serif;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #4a148c;
+        background: white;
+        cursor: pointer;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -329,36 +436,72 @@ THEME_VISUALS = {
         "icon": "💕",
         "class": "scene-friendship",
         "story_deco": "🌸",
+        "images": [
+            ("https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=600&h=350&fit=crop", "Two friends sharing a laugh"),
+            ("https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=600&h=350&fit=crop", "Walking together through a meadow"),
+            ("https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=600&h=350&fit=crop", "Happy friends playing in the park"),
+            ("https://images.unsplash.com/photo-1502086223501-7ea6ecd79368?w=600&h=350&fit=crop", "A sunny day with best friends"),
+        ],
     },
     "Magic": {
         "scene": "🧙‍♂️✨🪄  🏰  🌙🔮🦄",
         "icon": "🔮",
         "class": "scene-magic",
         "story_deco": "✨",
+        "images": [
+            ("https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&h=350&fit=crop", "A magical enchanted forest"),
+            ("https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&h=350&fit=crop", "Sparkling fairy lights in the dark"),
+            ("https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600&h=350&fit=crop", "A mystical castle in the mist"),
+            ("https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&h=350&fit=crop", "Magical stars lighting the sky"),
+        ],
     },
     "Animals": {
         "scene": "🐰🦊🐻  🌲🌿  🦋🐦🦔",
         "icon": "🐾",
         "class": "scene-animals",
         "story_deco": "🐾",
+        "images": [
+            ("https://images.unsplash.com/photo-1474511320723-9a56873571b7?w=600&h=350&fit=crop", "A cute bunny in the meadow"),
+            ("https://images.unsplash.com/photo-1504006833117-8886a355efbf?w=600&h=350&fit=crop", "A friendly fox in the forest"),
+            ("https://images.unsplash.com/photo-1535241749838-299277c6fc53?w=600&h=350&fit=crop", "Colorful butterflies in the garden"),
+            ("https://images.unsplash.com/photo-1557401622-09e04aafbe3d?w=600&h=350&fit=crop", "A baby deer in the woods"),
+        ],
     },
     "Adventure": {
         "scene": "🗺️⛵🏔️  🌅  🧭🎒🏝️",
         "icon": "🗺️",
         "class": "scene-adventure",
         "story_deco": "⚡",
+        "images": [
+            ("https://images.unsplash.com/photo-1682687220742-aba13b6e50ba?w=600&h=350&fit=crop", "A mountain trail leading to adventure"),
+            ("https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=600&h=350&fit=crop", "A boat sailing on a crystal lake"),
+            ("https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=600&h=350&fit=crop", "A tropical island paradise"),
+            ("https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=600&h=350&fit=crop", "A breathtaking sunrise over the valley"),
+        ],
     },
     "Princess": {
         "scene": "👸🏰👑  💎  🦢🌹🎀",
         "icon": "👑",
         "class": "scene-princess",
         "story_deco": "💎",
+        "images": [
+            ("https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=600&h=350&fit=crop", "A beautiful royal palace"),
+            ("https://images.unsplash.com/photo-1490750967868-88aa4f44baee?w=600&h=350&fit=crop", "A rose garden at the castle"),
+            ("https://images.unsplash.com/photo-1519741497674-611481863552?w=600&h=350&fit=crop", "A sparkling crown on velvet"),
+            ("https://images.unsplash.com/photo-1464820453369-31d2c0b651af?w=600&h=350&fit=crop", "A grand ballroom celebration"),
+        ],
     },
     "Space": {
         "scene": "🚀🌍🌙  ⭐  👽🛸🪐",
         "icon": "🚀",
         "class": "scene-space",
         "story_deco": "🌟",
+        "images": [
+            ("https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=600&h=350&fit=crop", "A rocket launching into the stars"),
+            ("https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&h=350&fit=crop", "Planet Earth from outer space"),
+            ("https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=600&h=350&fit=crop", "A colorful nebula in deep space"),
+            ("https://images.unsplash.com/photo-1454789548928-9efd52dc4031?w=600&h=350&fit=crop", "The moon shining bright at night"),
+        ],
     },
 }
 
@@ -546,6 +689,168 @@ if st.button("🪄 Create My Story! ✨"):
 
     if moral_text:
         st.markdown(f'<div class="moral-box">{moral_text}</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="cute-divider">🔊🎵🔊🎵🔊</div>', unsafe_allow_html=True)
+
+    # ---- AUDIO NARRATION + IMAGE SLIDESHOW ----
+    st.markdown("### 🎧 Listen to Your Story")
+
+    # Prepare story text and images for the JS player
+    # Split story into paragraphs for synced narration
+    story_paragraphs = story.split("\n\n")
+    images = tv["images"]
+
+    # Build JSON data for the JavaScript component
+    narration_data = json.dumps({
+        "title": title,
+        "paragraphs": story_paragraphs,
+        "images": [{"url": img[0], "caption": img[1]} for img in images],
+    })
+
+    # Complete HTML/JS component for audio narration + slideshow
+    audio_html = f"""
+    <div id="story-player" style="position:relative; z-index:1;">
+        <!-- Slideshow -->
+        <div class="slideshow-container">
+            <img id="slide-img" src="{images[0][0]}" alt="Story illustration" />
+        </div>
+        <div class="slide-caption" id="slide-caption">{images[0][1]}</div>
+
+        <!-- Currently reading paragraph -->
+        <div class="narration-box" id="narration-box">
+            <div class="now-playing">🎵 Now reading...</div>
+            <div id="current-text">Press Play to start the story!</div>
+        </div>
+
+        <!-- Speed selector -->
+        <div class="speed-selector">
+            🗣️ Voice Speed:
+            <select id="speed-select">
+                <option value="0.6">🐢 Slow (Little Kids)</option>
+                <option value="0.85" selected>🐰 Normal</option>
+                <option value="1.1">🐆 Fast</option>
+            </select>
+        </div>
+
+        <!-- Controls -->
+        <div class="audio-controls">
+            <button class="audio-btn" onclick="playStory()">▶️ Play Story</button>
+            <button class="audio-btn pause-btn" onclick="pauseStory()">⏸️ Pause</button>
+            <button class="audio-btn" onclick="resumeStory()">⏯️ Resume</button>
+            <button class="audio-btn stop-btn" onclick="stopStory()">⏹️ Stop</button>
+        </div>
+    </div>
+
+    <script>
+        const data = {narration_data};
+        const paragraphs = data.paragraphs;
+        const images = data.images;
+        let currentPara = 0;
+        let synth = window.speechSynthesis;
+        let isPlaying = false;
+        let slideInterval = null;
+        let currentSlide = 0;
+
+        function updateSlide() {{
+            currentSlide = (currentSlide + 1) % images.length;
+            const imgEl = document.getElementById('slide-img');
+            const capEl = document.getElementById('slide-caption');
+            imgEl.style.opacity = 0;
+            setTimeout(() => {{
+                imgEl.src = images[currentSlide].url;
+                capEl.textContent = images[currentSlide].caption;
+                imgEl.style.opacity = 1;
+            }}, 500);
+        }}
+
+        function startSlideshow() {{
+            if (slideInterval) clearInterval(slideInterval);
+            slideInterval = setInterval(updateSlide, 5000);
+        }}
+
+        function stopSlideshow() {{
+            if (slideInterval) {{
+                clearInterval(slideInterval);
+                slideInterval = null;
+            }}
+        }}
+
+        function speakParagraph(index) {{
+            if (index >= paragraphs.length) {{
+                isPlaying = false;
+                stopSlideshow();
+                document.getElementById('current-text').textContent = '✅ The End! Hope you enjoyed the story!';
+                return;
+            }}
+
+            currentPara = index;
+            const text = paragraphs[index];
+            document.getElementById('current-text').textContent = text;
+
+            // Update slide for this paragraph
+            const slideIdx = Math.floor((index / paragraphs.length) * images.length) % images.length;
+            const imgEl = document.getElementById('slide-img');
+            const capEl = document.getElementById('slide-caption');
+            imgEl.style.opacity = 0;
+            setTimeout(() => {{
+                imgEl.src = images[slideIdx].url;
+                capEl.textContent = images[slideIdx].caption;
+                imgEl.style.opacity = 1;
+            }}, 400);
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            const speed = parseFloat(document.getElementById('speed-select').value);
+            utterance.rate = speed;
+            utterance.pitch = 1.1;
+            utterance.volume = 1;
+
+            // Try to pick a friendly voice
+            const voices = synth.getVoices();
+            const preferredVoice = voices.find(v => v.name.includes('Female') || v.name.includes('Zira') || v.name.includes('Samantha') || v.name.includes('Google UK English Female'));
+            if (preferredVoice) utterance.voice = preferredVoice;
+
+            utterance.onend = () => {{
+                speakParagraph(index + 1);
+            }};
+
+            synth.speak(utterance);
+        }}
+
+        function playStory() {{
+            synth.cancel();
+            isPlaying = true;
+            currentPara = 0;
+            currentSlide = 0;
+            startSlideshow();
+            // Small delay to ensure voices are loaded
+            setTimeout(() => speakParagraph(0), 200);
+        }}
+
+        function pauseStory() {{
+            synth.pause();
+            stopSlideshow();
+        }}
+
+        function resumeStory() {{
+            synth.resume();
+            startSlideshow();
+        }}
+
+        function stopStory() {{
+            synth.cancel();
+            isPlaying = false;
+            stopSlideshow();
+            document.getElementById('current-text').textContent = 'Press Play to start the story!';
+        }}
+
+        // Pre-load voices
+        if (synth.onvoiceschanged !== undefined) {{
+            synth.onvoiceschanged = () => synth.getVoices();
+        }}
+    </script>
+    """
+
+    components.html(audio_html, height=700, scrolling=False)
 
     st.markdown('<div class="cute-divider">⭐🌈⭐🌈⭐</div>', unsafe_allow_html=True)
 
