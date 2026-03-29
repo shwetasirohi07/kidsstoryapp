@@ -1,4 +1,5 @@
 import io
+import hashlib
 import json
 import math
 import random
@@ -150,6 +151,33 @@ GLOBAL_STORY_RULES = {
     "thinking_range": (2, 3),
     "vocabulary_range": (5, 8),
 }
+
+TTS_PROVIDERS = ["Browser Speech", "OpenAI TTS", "ElevenLabs"]
+OPENAI_TTS_VOICE_MAP = {
+    "Playful Boy": "alloy",
+    "Energetic Boy": "alloy",
+    "Shy Boy": "ash",
+    "Brave Adventure Boy": "echo",
+    "Funny Mischievous Boy": "ballad",
+    "Sweet Girl": "nova",
+    "Cheerful Girl": "sage",
+    "Calm Bedtime Girl": "shimmer",
+    "Curious Girl": "sage",
+    "Magical Fairy Girl": "coral",
+}
+ELEVENLABS_VOICE_MAP = {
+    "Playful Boy": "EXAVITQu4vr4xnSDxMaL",
+    "Energetic Boy": "TxGEqnHWrfWFTfGW9XjX",
+    "Shy Boy": "onwK4e9ZLuTAKqWW03F9",
+    "Brave Adventure Boy": "VR6AewLTigWG4xSOukaG",
+    "Funny Mischievous Boy": "bIHbv24MWmeRgasZH58o",
+    "Sweet Girl": "XB0fDUnXU5powFXDhCwa",
+    "Cheerful Girl": "XrExE9yKIg1WjnnlVkGX",
+    "Calm Bedtime Girl": "ThT5KcBeYPX3keUQqHPh",
+    "Curious Girl": "pqHfZKP75CvOlQylNhV4",
+    "Magical Fairy Girl": "Xb7hH8MSUJpSbSDYk0k2",
+}
+TTS_CACHE_DIR = Path(".audio_cache")
 
 MORAL_LINES = {
     "Kindness": "Kindness turns small moments into big magic.",
@@ -1108,6 +1136,93 @@ def tts_preview_url(text: str) -> str:
     return f"https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q={safe_text}"
 
 
+def get_tts_provider_settings() -> Dict[str, str]:
+    return {
+        "provider": str(get_setting("tts_provider", "Browser Speech") or "Browser Speech"),
+        "openai_key": str(get_setting("tts_openai_key", "") or ""),
+        "elevenlabs_key": str(get_setting("tts_elevenlabs_key", "") or ""),
+        "openai_model": str(get_setting("tts_openai_model", "gpt-4o-mini-tts") or "gpt-4o-mini-tts"),
+        "elevenlabs_model": str(get_setting("tts_elevenlabs_model", "eleven_multilingual_v2") or "eleven_multilingual_v2"),
+    }
+
+
+def cache_audio_file_name(provider: str, voice_id: str, text: str) -> Path:
+    TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    fingerprint = hashlib.sha1(f"{provider}|{voice_id}|{text}".encode("utf-8")).hexdigest()
+    return TTS_CACHE_DIR / f"{fingerprint}.mp3"
+
+
+def generate_openai_tts_audio(text: str, api_key: str, voice_id: str, model: str) -> Optional[bytes]:
+    if not api_key:
+        return None
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/audio/speech",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": model, "voice": voice_id, "input": text, "format": "mp3"},
+            timeout=35,
+        )
+        response.raise_for_status()
+        return response.content
+    except Exception:
+        return None
+
+
+def generate_elevenlabs_tts_audio(text: str, api_key: str, voice_id: str, model: str) -> Optional[bytes]:
+    if not api_key:
+        return None
+    try:
+        response = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+            headers={
+                "xi-api-key": api_key,
+                "Content-Type": "application/json",
+                "Accept": "audio/mpeg",
+            },
+            json={
+                "text": text,
+                "model_id": model,
+                "voice_settings": {"stability": 0.38, "similarity_boost": 0.8, "style": 0.4, "use_speaker_boost": True},
+            },
+            timeout=35,
+        )
+        response.raise_for_status()
+        return response.content
+    except Exception:
+        return None
+
+
+def get_or_generate_provider_audio(text: str, voice_label: str) -> Dict[str, Any]:
+    settings = get_tts_provider_settings()
+    provider = settings["provider"]
+    if provider not in TTS_PROVIDERS or provider == "Browser Speech":
+        return {"status": "fallback", "engine": "browser_speech", "audio_path": None}
+
+    if provider == "OpenAI TTS":
+        voice_id = OPENAI_TTS_VOICE_MAP.get(voice_label, "nova")
+        cache_path = cache_audio_file_name(provider, voice_id, text)
+        if cache_path.exists():
+            return {"status": "ready", "engine": "openai_tts", "audio_path": str(cache_path)}
+        audio_bytes = generate_openai_tts_audio(text=text, api_key=settings["openai_key"], voice_id=voice_id, model=settings["openai_model"])
+        if not audio_bytes:
+            return {"status": "fallback", "engine": "browser_speech", "audio_path": None}
+        cache_path.write_bytes(audio_bytes)
+        return {"status": "ready", "engine": "openai_tts", "audio_path": str(cache_path)}
+
+    if provider == "ElevenLabs":
+        voice_id = ELEVENLABS_VOICE_MAP.get(voice_label, "XB0fDUnXU5powFXDhCwa")
+        cache_path = cache_audio_file_name(provider, voice_id, text)
+        if cache_path.exists():
+            return {"status": "ready", "engine": "elevenlabs", "audio_path": str(cache_path)}
+        audio_bytes = generate_elevenlabs_tts_audio(text=text, api_key=settings["elevenlabs_key"], voice_id=voice_id, model=settings["elevenlabs_model"])
+        if not audio_bytes:
+            return {"status": "fallback", "engine": "browser_speech", "audio_path": None}
+        cache_path.write_bytes(audio_bytes)
+        return {"status": "ready", "engine": "elevenlabs", "audio_path": str(cache_path)}
+
+    return {"status": "fallback", "engine": "browser_speech", "audio_path": None}
+
+
 def ensure_story_structure(story: Dict[str, Any]) -> Dict[str, Any]:
     normalized = dict(story)
     scenes = normalized.get("scenes", []) if isinstance(normalized.get("scenes"), list) else []
@@ -1191,11 +1306,13 @@ def generate_audio_for_page(story_id: int, page_index: int, page: Dict[str, Any]
         if dialogue:
             narration = f"{narration}  Dialogue: {dialogue}"
 
+    provider_audio = get_or_generate_provider_audio(narration, voice_label)
     audio_payload = {
-        "engine": "browser_speech",
+        "engine": provider_audio.get("engine", "browser_speech"),
         "voice_label": voice_label,
         "narration": narration,
-        "status": "ready",
+        "status": provider_audio.get("status", "ready"),
+        "audio_path": provider_audio.get("audio_path"),
     }
     cache[cache_key] = audio_payload
     st.session_state.audio_cache = cache
@@ -3369,7 +3486,18 @@ def render_listening_section(story: Dict[str, Any], story_id: int, page: Dict[st
 
         audio_payload = generate_audio_for_page(story_id, page_index, page, voice_profile["label"])
         status = str(audio_payload.get("status", "ready")).title()
-        st.caption(f"Page audio status: {status} • Voice: {voice_profile['label']} (Auto suggestion: {auto_voice})")
+        engine = str(audio_payload.get("engine", "browser_speech"))
+        st.caption(f"Page audio status: {status} • Engine: {engine} • Voice: {voice_profile['label']} (Auto suggestion: {auto_voice})")
+
+        audio_path = audio_payload.get("audio_path")
+        if audio_path:
+            try:
+                st.audio(audio_path, format="audio/mp3")
+            except Exception:
+                st.warning("Premium audio playback had an issue. Falling back to browser voice.")
+                audio_path = None
+        if not audio_path and status.lower() == "fallback":
+            st.info("Using browser voice fallback for this page. Configure API keys in Parent Zone to enable premium voices.")
 
         widget_key = f"{story_id}_{page_index}_{re.sub(r'[^a-z0-9]+', '_', voice_profile['label'].lower())}"
         render_speech_widget(audio_payload.get("narration", ""), voice_profile, widget_key, title="Listen to this page")
@@ -4045,10 +4173,26 @@ def parent_zone_screen() -> None:
         strict_mode = st.toggle("Strict child-safe wording", value=get_setting("strict_mode", "true") == "true")
         st.caption("When enabled, prompts stay extra gentle and age-safe.")
 
+    st.markdown("#### Premium Listening Provider")
+    t1, t2 = st.columns(2)
+    with t1:
+        tts_provider = st.selectbox("TTS Provider", TTS_PROVIDERS, index=TTS_PROVIDERS.index(get_setting("tts_provider", "Browser Speech") if get_setting("tts_provider", "Browser Speech") in TTS_PROVIDERS else "Browser Speech"))
+        tts_openai_model = st.text_input("OpenAI TTS model", value=get_setting("tts_openai_model", "gpt-4o-mini-tts"))
+        tts_elevenlabs_model = st.text_input("ElevenLabs model", value=get_setting("tts_elevenlabs_model", "eleven_multilingual_v2"))
+    with t2:
+        tts_openai_key = st.text_input("OpenAI TTS API key", type="password", value=get_setting("tts_openai_key", ""))
+        tts_elevenlabs_key = st.text_input("ElevenLabs API key", type="password", value=get_setting("tts_elevenlabs_key", ""))
+        st.caption("These keys are used for narration audio generation and cached for faster replay.")
+
     if st.button("Save Parent Settings"):
         set_setting("parent_email", parent_email)
         set_setting("max_scenes", str(max_scenes))
         set_setting("strict_mode", "true" if strict_mode else "false")
+        set_setting("tts_provider", tts_provider)
+        set_setting("tts_openai_key", tts_openai_key.strip())
+        set_setting("tts_elevenlabs_key", tts_elevenlabs_key.strip())
+        set_setting("tts_openai_model", tts_openai_model.strip() or "gpt-4o-mini-tts")
+        set_setting("tts_elevenlabs_model", tts_elevenlabs_model.strip() or "eleven_multilingual_v2")
         st.success("Parent settings saved.")
 
     st.markdown("#### Data Tools")
