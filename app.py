@@ -48,7 +48,18 @@ STORY_MODES = ["Quick Story", "Bedtime Story", "Adventure Mode", "Learn & Grow"]
 CHARACTER_OPTIONS = ["Animals", "Superheroes", "Princess", "Robots", "Friendly Monsters", "Kids"]
 LOCATION_OPTIONS = ["Jungle", "Space", "Ocean", "School", "Magical Land", "Mountain Village"]
 MORAL_OPTIONS = ["Kindness", "Honesty", "Bravery", "Sharing"]
-VOICE_STYLES = ["Female Storyteller", "Male Storyteller", "Fun Cartoon Voice"]
+VOICE_STYLES = [
+    "Playful Boy",
+    "Energetic Boy",
+    "Shy Boy",
+    "Brave Adventure Boy",
+    "Funny Mischievous Boy",
+    "Sweet Girl",
+    "Cheerful Girl",
+    "Calm Bedtime Girl",
+    "Curious Girl",
+    "Magical Fairy Girl",
+]
 DIFFICULTY_OPTIONS = {
     "Easy (3-5)": "3-5",
     "Medium (5-8)": "6-8",
@@ -105,6 +116,40 @@ MORAL_SOUNDS = {
 
 # Page turning sound
 PAGE_TURN_SOUND = "https://actions.google.com/sounds/v1/paper/page_flip.ogg"
+
+AMBIENCE_TRACKS = {
+    "Off": None,
+    "Bedtime Calm": "__internal_cozy_lullaby__",
+    "Forest Birds": "https://actions.google.com/sounds/v1/animals/birds_in_forest.ogg",
+    "Magical Chimes": "https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg",
+    "Rainy Day": "https://actions.google.com/sounds/v1/weather/rain_on_umbrella.ogg",
+    "Adventure Breeze": "https://actions.google.com/sounds/v1/water/wind_chimes.ogg",
+    "Happy Classroom": "https://actions.google.com/sounds/v1/ambiences/classroom.ogg",
+}
+
+VOICE_PROFILES: List[Dict[str, Any]] = [
+    {"label": "Playful Boy", "gender": "boy", "mood": "fun", "rate": 1.03, "pitch": 1.22, "voice_regex": r"male|boy|david|alex|mark|ryan"},
+    {"label": "Energetic Boy", "gender": "boy", "mood": "adventure", "rate": 1.08, "pitch": 1.15, "voice_regex": r"male|boy|david|alex|google uk english male"},
+    {"label": "Shy Boy", "gender": "boy", "mood": "calm", "rate": 0.92, "pitch": 1.08, "voice_regex": r"male|boy|microsoft david|google us english"},
+    {"label": "Brave Adventure Boy", "gender": "boy", "mood": "adventure", "rate": 1.0, "pitch": 1.1, "voice_regex": r"male|boy|mark|alex|guy"},
+    {"label": "Funny Mischievous Boy", "gender": "boy", "mood": "fun", "rate": 1.14, "pitch": 1.25, "voice_regex": r"male|boy|david|ryan|google us english"},
+    {"label": "Sweet Girl", "gender": "girl", "mood": "warm", "rate": 0.97, "pitch": 1.27, "voice_regex": r"female|girl|zira|samantha|victoria|aria"},
+    {"label": "Cheerful Girl", "gender": "girl", "mood": "fun", "rate": 1.06, "pitch": 1.32, "voice_regex": r"female|girl|zira|samantha|google uk english female"},
+    {"label": "Calm Bedtime Girl", "gender": "girl", "mood": "bedtime", "rate": 0.86, "pitch": 1.12, "voice_regex": r"female|girl|victoria|susan|samantha"},
+    {"label": "Curious Girl", "gender": "girl", "mood": "mystery", "rate": 0.98, "pitch": 1.22, "voice_regex": r"female|girl|zira|samantha|google us english"},
+    {"label": "Magical Fairy Girl", "gender": "girl", "mood": "magical", "rate": 0.93, "pitch": 1.38, "voice_regex": r"female|girl|victoria|zira|google uk english female"},
+]
+
+GLOBAL_STORY_RULES = {
+    "min_words": 500,
+    "max_words": 900,
+    "dialogue_min": 1,
+    "dialogue_max": 2,
+    "memory_range": (3, 5),
+    "understanding_range": (3, 5),
+    "thinking_range": (2, 3),
+    "vocabulary_range": (5, 8),
+}
 
 MORAL_LINES = {
     "Kindness": "Kindness turns small moments into big magic.",
@@ -394,6 +439,24 @@ def normalize_story_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             scene.setdefault("image_prompt", scene.get("text", "Magical children's storybook scene")[:140])
             scene.setdefault("image_url", "")
 
+    story_text = ensure_story_word_range(story_text, category=category, age_group=age_group)
+    if scenes:
+        scene_count = max(1, len(scenes))
+        chunked = [part.strip() for part in re.split(r"\n\n+", story_text) if part.strip()]
+        for idx, scene in enumerate(scenes):
+            if idx < len(chunked):
+                scene["text"] = chunked[idx]
+            if not scene.get("dialogue"):
+                scene["dialogue"] = '"We can solve this together," the hero whispered.'
+            if not scene.get("image_prompt"):
+                scene["image_prompt"] = (
+                    "Ultra realistic cinematic illustration in storybook style, warm lighting, magical atmosphere, "
+                    "child-friendly, consistent characters, detailed environment"
+                )
+            scene.setdefault("image_url", "")
+        if scene_count < 5 and story_text:
+            scenes = paragraphs_to_scenes(story_text)
+
     full_text = str(payload.get("full_text", "")).strip()
     if not full_text:
         if story_text:
@@ -418,10 +481,14 @@ def normalize_story_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "moral": moral,
         "scenes": scenes,
         "questions": payload.get("questions", {"memory": [], "understanding": [], "thinking": []}),
+        "vocabulary": payload.get("vocabulary", []),
         "feedback_messages": feedback_messages,
         "full_text": full_text,
     }
+    normalized = ensure_story_structure(normalized)
     normalized["questions"] = ensure_story_questions(normalized)
+    if not isinstance(normalized.get("vocabulary"), list) or len(normalized.get("vocabulary", [])) < GLOBAL_STORY_RULES["vocabulary_range"][0]:
+        normalized["vocabulary"] = extract_story_vocabulary(normalized.get("story", ""))
     return normalized
 
 
@@ -493,6 +560,18 @@ def render_music_track(track_key: str) -> None:
         return
     if isinstance(source, str):
         st.audio(source, format="audio/mp3")
+
+
+def render_ambience_track(track_key: str) -> None:
+    source = AMBIENCE_TRACKS.get(track_key)
+    if not source:
+        return
+    if source == "__internal_cozy_lullaby__":
+        st.audio(build_cozy_lullaby_wav(), format="audio/wav")
+        return
+    if isinstance(source, str):
+        fmt = "audio/ogg" if source.endswith(".ogg") else "audio/mp3"
+        st.audio(source, format=fmt)
 
 
 def create_profile(child_name: str, age_group: str, avatar: str) -> int:
@@ -938,6 +1017,250 @@ def play_sound(sound_url: str, sound_name: str = "sound") -> None:
     components.html(audio_html, height=0)
 
 
+def story_word_count(text: str) -> int:
+    return len(re.findall(r"\b\w+\b", str(text or "")))
+
+
+def is_age_8_to_10(age_group: str) -> bool:
+    normalized = str(age_group or "").replace("–", "-").strip()
+    return normalized in {"8-10", "9-12"}
+
+
+def ensure_story_word_range(story_text: str, category: str, age_group: str) -> str:
+    text = str(story_text or "").strip()
+    if not text:
+        return text
+
+    suspense_paragraphs = [
+        "Just when things seemed solved, a hush slipped across the path and a new clue shimmered under the lantern light. The hero paused, listened, and realized the story still held one final secret waiting to be understood.",
+        "A gentle twist arrived at twilight: the clue they trusted was only half the answer. By asking one brave question and noticing one tiny detail, they unlocked the true path forward.",
+        "Curiosity led the way as the wind shifted and revealed a hidden mark on the old stone. What looked ordinary moments ago suddenly felt like a doorway to the final piece of the puzzle.",
+    ]
+    warm_paragraphs = [
+        "They breathed in, slowed down, and remembered that kind choices can be strong choices. The next step felt clearer when they looked with calm eyes and an open heart.",
+        "A small smile passed between friends. Even before the ending arrived, they knew they had grown braver simply by staying curious and helping one another.",
+    ]
+
+    fillers = suspense_paragraphs if is_age_8_to_10(age_group) or category == "Adventure" else warm_paragraphs
+    min_words = GLOBAL_STORY_RULES["min_words"]
+    max_words = GLOBAL_STORY_RULES["max_words"]
+
+    i = 0
+    while story_word_count(text) < min_words:
+        text = f"{text}\n\n{fillers[i % len(fillers)]}"
+        i += 1
+
+    words = re.findall(r"\S+", text)
+    if len(words) > max_words:
+        text = " ".join(words[:max_words]).strip()
+        if not text.endswith((".", "!", "?")):
+            text += "."
+    return text
+
+
+def extract_story_vocabulary(story_text: str, min_items: int = 6, max_items: int = 8) -> List[Dict[str, str]]:
+    simple_defs = {
+        "lantern": "A light you can carry in your hand.",
+        "curious": "Wanting to know or learn more.",
+        "whisper": "To speak very softly.",
+        "courage": "Being brave even when you feel nervous.",
+        "mystery": "Something not known yet that you want to solve.",
+        "glimmer": "A small, soft shine.",
+        "journey": "A trip from one place to another.",
+        "gentle": "Soft, calm, and kind.",
+        "sparkle": "To shine with tiny bright flashes.",
+        "brisk": "A little fast and full of energy.",
+        "echo": "A sound that repeats after bouncing.",
+        "twilight": "The soft light just after sunset.",
+        "meadow": "A wide field with grass and flowers.",
+        "cautious": "Careful to avoid danger or mistakes.",
+        "marvel": "Something amazing that fills you with wonder.",
+    }
+
+    tokens = [t.lower() for t in re.findall(r"\b[a-zA-Z]{5,12}\b", str(story_text or ""))]
+    picked: List[str] = []
+    for token in tokens:
+        if token in picked:
+            continue
+        if token in simple_defs or len(token) >= 7:
+            picked.append(token)
+        if len(picked) >= max_items:
+            break
+
+    if len(picked) < min_items:
+        fallback = ["curious", "journey", "gentle", "sparkle", "courage", "mystery", "whisper", "meadow"]
+        for word in fallback:
+            if word not in picked:
+                picked.append(word)
+            if len(picked) >= min_items:
+                break
+
+    items: List[Dict[str, str]] = []
+    for word in picked[:max_items]:
+        meaning = simple_defs.get(word, "A useful story word that helps describe ideas clearly.")
+        sentence = f"In the story, the word '{word}' helped paint the scene in a clear and exciting way."
+        items.append({"word": word.title(), "meaning": meaning, "example": sentence})
+    return items
+
+
+def tts_preview_url(text: str) -> str:
+    safe_text = quote_plus(str(text or "")[:250])
+    return f"https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q={safe_text}"
+
+
+def ensure_story_structure(story: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(story)
+    scenes = normalized.get("scenes", []) if isinstance(normalized.get("scenes"), list) else []
+    if not scenes and normalized.get("story"):
+        scenes = paragraphs_to_scenes(str(normalized.get("story", "")))
+    for idx, scene in enumerate(scenes):
+        text = str(scene.get("text", "")).strip()
+        image_prompt = str(scene.get("image_prompt", "")).strip()
+        if not image_prompt:
+            image_prompt = (
+                f"Ultra realistic cinematic illustration of {normalized.get('title', 'a young hero')} in a child-friendly storybook style, "
+                "warm lighting, magical atmosphere, detailed environment, consistent characters"
+            )
+        scenes[idx]["image_prompt"] = image_prompt
+        scenes[idx]["text"] = text
+    normalized["scenes"] = scenes
+
+    if not normalized.get("vocabulary"):
+        normalized["vocabulary"] = extract_story_vocabulary(str(normalized.get("story", "")))
+    return normalized
+
+
+def pick_auto_voice_label(story: Dict[str, Any]) -> str:
+    category = str(story.get("category", "Magical"))
+    subtitle = str(story.get("subtitle", "")).lower()
+    story_text = str(story.get("story", "")).lower()
+
+    if "bedtime" in category.lower() or "sleep" in subtitle:
+        return "Calm Bedtime Girl"
+    if "adventure" in category.lower():
+        return "Brave Adventure Boy"
+    if "funny" in category.lower():
+        return "Funny Mischievous Boy"
+    if "magical" in category.lower() or "fairy" in story_text:
+        return "Magical Fairy Girl"
+    if "mystery" in story_text or "secret" in story_text:
+        return "Curious Girl"
+    return "Cheerful Girl"
+
+
+def get_story_voice(story: Dict[str, Any], manual_override: Optional[str] = None) -> Dict[str, Any]:
+    chosen = manual_override if manual_override and manual_override != "Auto (Smart Match)" else pick_auto_voice_label(story)
+    profile = next((v for v in VOICE_PROFILES if v["label"] == chosen), VOICE_PROFILES[0])
+    return profile
+
+
+def get_ambience_for_story(story: Dict[str, Any]) -> str:
+    category = str(story.get("category", "Magical"))
+    if category == "Bedtime":
+        return "Bedtime Calm"
+    if category == "Adventure":
+        return "Adventure Breeze"
+    if category == "Funny":
+        return "Happy Classroom"
+    return "Magical Chimes"
+
+
+def reset_audio_state_for_new_story(story_id: int) -> None:
+    if st.session_state.get("current_story_audio_id") == story_id:
+        return
+    st.session_state.current_story_audio_id = story_id
+    st.session_state.playback_mode = "stopped"
+    st.session_state.audio_page_key = None
+    if "audio_cache" not in st.session_state:
+        st.session_state.audio_cache = {}
+    else:
+        st.session_state.audio_cache = {}
+
+
+def generate_audio_for_page(story_id: int, page_index: int, page: Dict[str, Any], voice_label: str) -> Dict[str, Any]:
+    cache_key = f"{story_id}:{page_index}:{voice_label}:{page.get('type', 'text')}"
+    cache = st.session_state.get("audio_cache", {})
+    if cache_key in cache:
+        return cache[cache_key]
+
+    if page.get("type") == "image":
+        narration = f"Illustration moment: {page.get('caption', 'Take a breath and imagine this scene.')}"
+    else:
+        narration = str(page.get("text", "")).strip()
+        dialogue = str(page.get("dialogue", "")).strip()
+        if dialogue:
+            narration = f"{narration}  Dialogue: {dialogue}"
+
+    audio_payload = {
+        "engine": "browser_speech",
+        "voice_label": voice_label,
+        "narration": narration,
+        "status": "ready",
+    }
+    cache[cache_key] = audio_payload
+    st.session_state.audio_cache = cache
+    return audio_payload
+
+
+def render_speech_widget(text: str, voice_profile: Dict[str, Any], widget_key: str, title: str = "Listen to this page") -> None:
+    safe_text = json.dumps(str(text or ""))
+    safe_regex = json.dumps(str(voice_profile.get("voice_regex", "")))
+    rate = float(voice_profile.get("rate", 1.0))
+    pitch = float(voice_profile.get("pitch", 1.0))
+    html = f"""
+    <div style='border-radius:16px;padding:12px;background:linear-gradient(120deg,#eef2ff,#fdf4ff);border:1px solid #ddd6fe;'>
+      <div style='font-weight:800;margin-bottom:8px;color:#4c1d95'>{escape(title)} 🎧</div>
+      <div style='display:flex;gap:8px;flex-wrap:wrap;'>
+        <button id='play_{widget_key}' style='padding:6px 10px;border:none;border-radius:999px;background:#7c3aed;color:white;font-weight:700'>Play story ▶</button>
+        <button id='pause_{widget_key}' style='padding:6px 10px;border:none;border-radius:999px;background:#2563eb;color:white;font-weight:700'>Pause ⏸</button>
+        <button id='replay_{widget_key}' style='padding:6px 10px;border:none;border-radius:999px;background:#059669;color:white;font-weight:700'>Replay 🔁</button>
+        <button id='stop_{widget_key}' style='padding:6px 10px;border:none;border-radius:999px;background:#dc2626;color:white;font-weight:700'>Stop ⏹</button>
+      </div>
+      <div id='state_{widget_key}' style='margin-top:7px;font-size:0.85rem;color:#6d28d9'>Ready</div>
+    </div>
+    <script>
+      const text_{widget_key} = {safe_text};
+      const synth_{widget_key} = window.speechSynthesis;
+      let utter_{widget_key} = null;
+
+      function pickVoice_{widget_key}() {{
+        const voices = synth_{widget_key}.getVoices();
+        if (!voices || !voices.length) return null;
+        const rx = new RegExp({safe_regex}, 'i');
+        return voices.find(v => rx.test(v.name)) || voices[0];
+      }}
+
+      function play_{widget_key}(restart) {{
+        if (restart) synth_{widget_key}.cancel();
+        utter_{widget_key} = new SpeechSynthesisUtterance(text_{widget_key});
+        utter_{widget_key}.rate = {rate};
+        utter_{widget_key}.pitch = {pitch};
+        const voice = pickVoice_{widget_key}();
+        if (voice) utter_{widget_key}.voice = voice;
+        synth_{widget_key}.speak(utter_{widget_key});
+        document.getElementById('state_{widget_key}').textContent = 'Playing';
+      }}
+
+      document.getElementById('play_{widget_key}').onclick = () => play_{widget_key}(true);
+      document.getElementById('replay_{widget_key}').onclick = () => play_{widget_key}(true);
+      document.getElementById('pause_{widget_key}').onclick = () => {{
+        if (synth_{widget_key}.speaking && !synth_{widget_key}.paused) {{
+          synth_{widget_key}.pause();
+          document.getElementById('state_{widget_key}').textContent = 'Paused';
+        }} else if (synth_{widget_key}.paused) {{
+          synth_{widget_key}.resume();
+          document.getElementById('state_{widget_key}').textContent = 'Resumed';
+        }}
+      }};
+      document.getElementById('stop_{widget_key}').onclick = () => {{
+        synth_{widget_key}.cancel();
+        document.getElementById('state_{widget_key}').textContent = 'Stopped';
+      }};
+    </script>
+    """
+    components.html(html, height=165, scrolling=False)
+
+
 def safe_json_extract(text: str) -> Optional[Dict[str, Any]]:
     match = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if not match:
@@ -1076,10 +1399,13 @@ def ai_generate_story(api_provider: str, api_key: str, model: str, prompt_payloa
     base_url = "https://api.openai.com/v1/chat/completions" if api_provider == "OpenAI" else "https://api.mistral.ai/v1/chat/completions"
     system_prompt = (
         f"You create premium educational children's stories for {APP_NAME}. "
-        "Return ONLY valid JSON with required keys: app_name, tagline, title, subtitle, story, age_group, moral, scenes, questions, feedback_messages. "
-        "Story must be 400-700 words, immersive, magical, child-friendly, with a beginning, middle, end, and 1-2 dialogues. "
-        "Scenes must be 5-8 items and each scene needs: heading, text, dialogue, choice_a, choice_b, reaction, image_prompt. "
-        "Questions must include memory (3-5 MCQs with options and answer), understanding (3-5 with answer), thinking (2-3 open-ended)."
+        "Return ONLY valid JSON with required keys: app_name, tagline, title, subtitle, story, age_group, category, moral, scenes, vocabulary, questions, feedback_messages. "
+        "Story must be 500-900 words, natural and emotional, with suspense, curiosity, beginning-middle-ending flow, and 1-2 dialogues. "
+        "For age 8-10 tone (or 9-12), write more adventurous and slightly mysterious moments with child-friendly richer vocabulary and at least one twist. "
+        "Scenes must be 5-8 items and each scene needs heading, text, dialogue, choice_a, choice_b, reaction, image_prompt. "
+        "Each image_prompt must be cinematic storybook style with warm lighting, magical atmosphere, child-friendly consistency. "
+        "Questions must include memory (3-5 MCQs with options and answer), understanding (3-5 with answer), thinking (2-3 open-ended). "
+        "Vocabulary must include 5-8 words from the story; each item has word, meaning, example."
     )
     user_prompt = json.dumps(prompt_payload)
 
@@ -1574,6 +1900,22 @@ def init_state() -> None:
         st.session_state.home_recommendation_filter_select = st.session_state.home_recommendation_filter
     if "home_last_recommendation_filter" not in st.session_state:
         st.session_state.home_last_recommendation_filter = st.session_state.home_recommendation_filter
+    if "current_story_audio_id" not in st.session_state:
+        st.session_state.current_story_audio_id = None
+    if "selected_voice" not in st.session_state:
+        st.session_state.selected_voice = "Auto (Smart Match)"
+    if "auto_selected_voice" not in st.session_state:
+        st.session_state.auto_selected_voice = "Cheerful Girl"
+    if "audio_cache" not in st.session_state:
+        st.session_state.audio_cache = {}
+    if "ambience_enabled" not in st.session_state:
+        st.session_state.ambience_enabled = False
+    if "playback_mode" not in st.session_state:
+        st.session_state.playback_mode = "stopped"
+    if "narration_speed" not in st.session_state:
+        st.session_state.narration_speed = 1.0
+    if "narration_volume" not in st.session_state:
+        st.session_state.narration_volume = 0.9
 
 
 def reset_story_navigation_state() -> None:
@@ -1593,6 +1935,7 @@ def open_story_in_reader(story_id: int) -> None:
     st.session_state.live_story_id = None
     reset_story_navigation_state()
     reset_quiz_state()
+    reset_audio_state_for_new_story(story_id)
     st.session_state.screen = "📚 Story Player"
 
 
@@ -1618,7 +1961,7 @@ def unique_lines(lines: List[str]) -> List[str]:
 
 
 def split_story_into_pages(story: Dict[str, Any]) -> List[Dict[str, Any]]:
-    # Convert the stored story payload into clean, one-page-at-a-time reader pages.
+    # Convert the stored story payload into alternating TEXT -> IMAGE pages.
     normalized_story = normalize_story_payload(story)
     scenes = normalized_story.get("scenes", []) if isinstance(normalized_story.get("scenes"), list) else []
     if not scenes and normalized_story.get("story"):
@@ -1649,29 +1992,39 @@ def split_story_into_pages(story: Dict[str, Any]) -> List[Dict[str, Any]]:
         if fingerprint:
             seen_page_fingerprints.add(fingerprint)
 
-        pages.append(
-            {
-                "scene_index": idx,
-                "heading": heading,
-                "text": body or "A new magical moment is ready to read.",
-                "dialogue": dialogue,
-                "choice_a": str(raw_scene.get("choice_a", "Follow the glowing path")).strip(),
-                "choice_b": str(raw_scene.get("choice_b", "Listen beside the old tree")).strip(),
-                "image_url": str(raw_scene.get("image_url", "")).strip(),
-            }
-        )
+        text_page = {
+            "type": "text",
+            "scene_index": idx,
+            "heading": heading,
+            "text": body or "A new magical moment is ready to read.",
+            "dialogue": dialogue,
+            "choice_a": str(raw_scene.get("choice_a", "Follow the glowing path")).strip(),
+            "choice_b": str(raw_scene.get("choice_b", "Listen beside the old tree")).strip(),
+        }
+        image_page = {
+            "type": "image",
+            "scene_index": idx,
+            "heading": f"{heading} Illustration",
+            "image_url": str(raw_scene.get("image_url", "")).strip(),
+            "prompt": str(raw_scene.get("image_prompt", "Magical storybook illustration")).strip(),
+            "caption": "Imagine this scene and look for tiny details.",
+            "ambience": "Magical Chimes",
+        }
+
+        pages.append(text_page)
+        pages.append(image_page)
 
     if not pages:
         fallback_text = normalize_reader_line(normalized_story.get("story", "")) or normalize_reader_line(normalized_story.get("full_text", ""))
         pages = [
             {
+                "type": "text",
                 "scene_index": 0,
                 "heading": normalized_story.get("title", "Story"),
                 "text": fallback_text or "A story page will appear here once the adventure begins.",
                 "dialogue": "",
                 "choice_a": "Keep exploring",
                 "choice_b": "Take a quiet breath",
-                "image_url": "",
             }
         ]
     return pages
@@ -1700,8 +2053,29 @@ def sync_story_reader(story: Dict[str, Any], reset_index: bool = False) -> None:
 
 
 def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -> None:
-    if page.get("image_url"):
-        st.image(page["image_url"], caption=f"Illustration for {page['heading']}", use_container_width=True)
+    page_type = str(page.get("type", "text"))
+
+    if page_type == "image":
+        image_url = str(page.get("image_url", "")).strip()
+        if image_url:
+            st.image(image_url, caption=f"Illustration for {page['heading']}", use_container_width=True)
+        st.markdown(
+            f"""
+            <div class='story-page-card'>
+                <div class='story-page-meta'>
+                    <span class='mini-pill'>Image Page {page_index + 1} of {total_pages}</span>
+                    <span class='story-page-stars'>🎨 ✨ 🖼️</span>
+                </div>
+                <div class='story-page-heading'>{escape(str(page.get('heading', f'Image {page_index + 1}')))}</div>
+                <div class='story-page-copy'>
+                    <p>{escape(str(page.get('caption', 'Take a breath and imagine this magical moment.')))}</p>
+                    <p><b>Scene prompt:</b> {escape(str(page.get('prompt', 'storybook cinematic scene')))}</p>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
 
     paragraphs = [part.strip() for part in re.split(r"\n{2,}", str(page.get("text", ""))) if part.strip()]
     paragraph_html = "".join(f"<p>{escape(paragraph)}</p>" for paragraph in paragraphs)
@@ -2942,49 +3316,82 @@ def home_screen() -> None:
         render_music_track("Cozy Kids Lullaby")
 
 
-def render_voice_tts(text: str) -> None:
-    safe_text = json.dumps(text)
-    html = f"""
-    <div style='border-radius:16px;padding:12px;background:linear-gradient(120deg,#eef2ff,#fce7f3);border:1px solid #e9d5ff;'>
-      <div style='font-weight:800;margin-bottom:8px;color:#4c1d95'>Narrator Voices</div>
-      <select id='voiceStyle' style='padding:6px;border-radius:10px;border:1px solid #c4b5fd;margin-right:8px;'>
-        <option>Female Storyteller</option>
-        <option>Male Storyteller</option>
-        <option>Fun Cartoon Voice</option>
-      </select>
-      <button onclick='playVoice()' style='padding:6px 10px;border:none;border-radius:999px;background:#7c3aed;color:white;font-weight:700'>Play</button>
-      <button onclick='stopVoice()' style='padding:6px 10px;border:none;border-radius:999px;background:#dc2626;color:white;font-weight:700'>Stop</button>
-      <div id='voiceState' style='margin-top:7px;font-size:0.85rem;color:#6d28d9'>Ready</div>
-    </div>
-    <script>
-      const storyText = {safe_text};
-      const synth = window.speechSynthesis;
-      function pickVoice(style) {{
-        const voices = synth.getVoices();
-        if (!voices.length) return null;
-        if (style.includes('Female')) {{
-          return voices.find(v => /female|zira|samantha|victoria/i.test(v.name)) || voices[0];
-        }}
-        if (style.includes('Male')) {{
-          return voices.find(v => /male|david|mark|alex/i.test(v.name)) || voices[0];
-        }}
-        return voices.find(v => /child|junior|google uk english female/i.test(v.name)) || voices[0];
-      }}
-      function playVoice() {{
-        const style = document.getElementById('voiceStyle').value;
-        synth.cancel();
-        const u = new SpeechSynthesisUtterance(storyText);
-        u.rate = style.includes('Cartoon') ? 1.08 : 0.92;
-        u.pitch = style.includes('Cartoon') ? 1.35 : 1.0;
-        const v = pickVoice(style);
-        if (v) u.voice = v;
-        document.getElementById('voiceState').textContent = 'Now speaking with ' + style;
-        synth.speak(u);
-      }}
-      function stopVoice() {{ synth.cancel(); document.getElementById('voiceState').textContent = 'Stopped'; }}
-    </script>
-    """
-    components.html(html, height=130, scrolling=False)
+def render_inline_pronunciation(label: str, text: str, key: str) -> None:
+        c1, c2 = st.columns([1.2, 2.2])
+        if c1.button(label, key=key, use_container_width=True):
+                st.audio(tts_preview_url(text), format="audio/mp3")
+        c2.caption(text)
+
+
+def render_vocabulary_boost(story: Dict[str, Any], story_id: int) -> None:
+        vocabulary = story.get("vocabulary", []) if isinstance(story.get("vocabulary"), list) else []
+        if not vocabulary:
+                vocabulary = extract_story_vocabulary(str(story.get("story", "")))
+                story["vocabulary"] = vocabulary
+
+        st.markdown("#### ✨ Vocabulary Boost")
+        st.caption("Learn new words from this story. Tap any speaker button to hear pronunciation.")
+
+        for idx, item in enumerate(vocabulary[: GLOBAL_STORY_RULES["vocabulary_range"][1]]):
+                word = str(item.get("word", "Word")).strip()
+                meaning = str(item.get("meaning", "A useful story word.")).strip()
+                example = str(item.get("example", "This word appears in the story.")).strip()
+                st.markdown(f"**{word}** - {meaning}")
+                render_inline_pronunciation("Hear word 🔊", word, f"vocab_word_{story_id}_{idx}")
+                render_inline_pronunciation("Hear meaning 🔊", meaning, f"vocab_meaning_{story_id}_{idx}")
+                render_inline_pronunciation("Hear sentence 🔊", example, f"vocab_example_{story_id}_{idx}")
+
+
+def render_listening_section(story: Dict[str, Any], story_id: int, page: Dict[str, Any], page_index: int, total_pages: int) -> None:
+        st.markdown("#### Listen to this story 🎧")
+        auto_voice = pick_auto_voice_label(story)
+        voice_choices = ["Auto (Smart Match)"] + [profile["label"] for profile in VOICE_PROFILES]
+        default_choice = st.session_state.get("selected_voice", "Auto (Smart Match)")
+        if default_choice not in voice_choices:
+                default_choice = "Auto (Smart Match)"
+
+        a1, a2, a3 = st.columns(3)
+        with a1:
+                selected_voice = st.selectbox("Choose your voice 🎙", voice_choices, index=voice_choices.index(default_choice), key=f"voice_select_{story_id}")
+        with a2:
+                narration_speed = st.slider("Narration speed", min_value=0.75, max_value=1.25, value=float(st.session_state.get("narration_speed", 1.0)), step=0.05)
+        with a3:
+                narration_volume = st.slider("Volume", min_value=0.0, max_value=1.0, value=float(st.session_state.get("narration_volume", 0.9)), step=0.05)
+
+        st.session_state.selected_voice = selected_voice
+        st.session_state.auto_selected_voice = auto_voice
+        st.session_state.narration_speed = narration_speed
+        st.session_state.narration_volume = narration_volume
+
+        voice_profile = get_story_voice(story, manual_override=selected_voice)
+        voice_profile = dict(voice_profile)
+        voice_profile["rate"] = narration_speed
+
+        audio_payload = generate_audio_for_page(story_id, page_index, page, voice_profile["label"])
+        status = str(audio_payload.get("status", "ready")).title()
+        st.caption(f"Page audio status: {status} • Voice: {voice_profile['label']} (Auto suggestion: {auto_voice})")
+
+        widget_key = f"{story_id}_{page_index}_{re.sub(r'[^a-z0-9]+', '_', voice_profile['label'].lower())}"
+        render_speech_widget(audio_payload.get("narration", ""), voice_profile, widget_key, title="Listen to this page")
+
+        b1, b2, b3 = st.columns([1, 1, 2])
+        with b1:
+                if st.button("Previous page ⬅", key=f"audio_prev_{story_id}_{page_index}", disabled=page_index == 0):
+                        st.session_state.page_turning = True
+                        st.session_state.page_turn_target = max(0, page_index - 1)
+                        st.rerun()
+        with b2:
+                if st.button("Next page ➜", key=f"audio_next_{story_id}_{page_index}", disabled=page_index >= total_pages - 1):
+                        st.session_state.page_turning = True
+                        st.session_state.page_turn_target = min(total_pages - 1, page_index + 1)
+                        st.rerun()
+        with b3:
+                ambience_enabled = st.toggle("Ambience on/off", value=bool(st.session_state.get("ambience_enabled", False)), key=f"ambience_toggle_{story_id}")
+                st.session_state.ambience_enabled = ambience_enabled
+                ambience_default = get_ambience_for_story(story)
+                ambience_choice = st.selectbox("Scene ambience", list(AMBIENCE_TRACKS.keys()), index=list(AMBIENCE_TRACKS.keys()).index(ambience_default) if ambience_default in AMBIENCE_TRACKS else 0, key=f"ambience_choice_{story_id}")
+                if ambience_enabled and AMBIENCE_TRACKS.get(ambience_choice):
+                    render_ambience_track(ambience_choice)
 
 
 def render_quiz_panel(story: Dict[str, Any], story_id: int) -> None:
@@ -3000,6 +3407,8 @@ def render_quiz_panel(story: Dict[str, Any], story_id: int) -> None:
 
     st.markdown("#### Brain Boost Quiz")
     st.caption("Recall, understand, and think beyond the page.")
+    quiz_read_aloud = st.toggle("Read quiz questions aloud 🔊", value=bool(st.session_state.get("quiz_read_aloud", False)), key=f"quiz_read_aloud_{story_id}")
+    st.session_state.quiz_read_aloud = quiz_read_aloud
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Best (This Story)", f"{best_score}/{len(memory_questions)}")
@@ -3049,12 +3458,16 @@ def render_quiz_panel(story: Dict[str, Any], story_id: int) -> None:
         with st.expander("Understanding Questions", expanded=False):
             for idx, item in enumerate(understanding_questions):
                 st.markdown(f"**Q{idx + 1}. {item.get('question', '')}**")
+                if quiz_read_aloud:
+                    render_inline_pronunciation("Read question 🔊", item.get("question", ""), f"quiz_under_q_read_{story_id}_{idx}")
                 st.text_area("Your answer", key=f"quiz_understanding_{story_id}_{idx}", height=80)
                 st.caption(f"Suggested answer: {item.get('answer', '')}")
 
         with st.expander("Thinking Questions", expanded=False):
             for idx, item in enumerate(thinking_questions):
                 st.markdown(f"**Q{idx + 1}. {item.get('question', '')}**")
+                if quiz_read_aloud:
+                    render_inline_pronunciation("Read question 🔊", item.get("question", ""), f"quiz_think_q_read_{story_id}_{idx}")
                 st.text_area("Your idea", key=f"quiz_thinking_{story_id}_{idx}", height=80)
         return
 
@@ -3067,12 +3480,30 @@ def render_quiz_panel(story: Dict[str, Any], story_id: int) -> None:
             st.rerun()
         return
 
-    st.caption("Memory Round: choose the best answer for each question.")
+    st.markdown("##### Memory Questions")
+    st.caption("Choose the best answer for each memory question.")
     for idx, item in enumerate(memory_questions):
         options = item.get("options", [])
         if options and item.get("answer") in options:
             options = sorted(options, key=lambda _: random.random())
+        if quiz_read_aloud:
+            render_inline_pronunciation("Read question 🔊", item.get("question", f"Memory question {idx + 1}"), f"quiz_memory_q_read_{story_id}_{idx}")
         st.radio(item.get("question", f"Memory question {idx + 1}"), options, key=f"quiz_memory_{story_id}_{idx}")
+
+    with st.expander("Understanding Questions", expanded=False):
+        for idx, item in enumerate(understanding_questions):
+            st.markdown(f"**Q{idx + 1}. {item.get('question', '')}**")
+            if quiz_read_aloud:
+                render_inline_pronunciation("Read question 🔊", item.get("question", ""), f"quiz_under_open_read_{story_id}_{idx}")
+            st.text_area("Your answer", key=f"quiz_understanding_{story_id}_{idx}", height=80)
+            st.caption(f"Suggested answer: {item.get('answer', '')}")
+
+    with st.expander("Thinking Questions", expanded=False):
+        for idx, item in enumerate(thinking_questions):
+            st.markdown(f"**Q{idx + 1}. {item.get('question', '')}**")
+            if quiz_read_aloud:
+                render_inline_pronunciation("Read question 🔊", item.get("question", ""), f"quiz_thinking_open_read_{story_id}_{idx}")
+            st.text_area("Your idea", key=f"quiz_thinking_{story_id}_{idx}", height=80)
 
     submitted = st.button("Submit Quiz", key=f"submit_quiz_{story_id}")
     if submitted:
@@ -3452,6 +3883,7 @@ def story_player_screen() -> None:
             )
             conn.commit()
             conn.close()
+            reset_audio_state_for_new_story(sid)
     story = st.session_state.live_story
     sync_story_reader(story, reset_index=new_story_loaded or st.session_state.current_story is None)
 
@@ -3477,17 +3909,9 @@ def story_player_screen() -> None:
     st.markdown(f"## {story['title']}")
     st.caption(story.get("subtitle", ""))
 
-    top1, top2, top3 = st.columns(3)
-    with top1:
-        voice_style = st.selectbox("Narrator voice style", VOICE_STYLES, key="voice_style_select")
-    with top2:
-        music = st.selectbox("Background music", list(MUSIC_TRACKS.keys()))
-    with top3:
-        sfx = st.selectbox("Sound effect", ["None"] + list(SFX_TRACKS.keys()))
-
-    render_music_track(music)
-    if sfx != "None":
-        st.audio(SFX_TRACKS[sfx], format="audio/ogg")
+    home_audio = st.toggle("Play welcome jingle ✨", value=False, key=f"welcome_jingle_{sid}")
+    if home_audio:
+        play_sound("https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg", "welcome_jingle")
 
     total_pages = max(1, int(st.session_state.get("total_pages", 0) or 0))
     current_page_index = min(max(0, st.session_state.get("current_page_index", 0)), total_pages - 1)
@@ -3498,24 +3922,29 @@ def story_player_screen() -> None:
     st.progress((current_page_index + 1) / total_pages, text=f"Page {current_page_index + 1} of {total_pages}")
     render_story_page(current_page, current_page_index, total_pages)
     render_navigation(sid)
+    render_listening_section(story, sid, current_page, current_page_index, total_pages)
 
-    st.markdown("#### Make Your Choice")
-    ch1, ch2 = st.columns([1, 1])
-    if ch1.button(current_page.get("choice_a", "Choice A"), key=f"choice_a_{sid}_{current_page_index}"):
-        st.session_state.choices.append({"scene": current_page_index + 1, "choice": current_page.get("choice_a", "Choice A")})
-        reaction = apply_branch_choice(story, current_scene_index, current_page.get("choice_a", "Choice A"))
-        st.success(f"Character reaction: {reaction}")
-        st.session_state.live_story = story
-        sync_story_reader(story, reset_index=False)
-    if ch2.button(current_page.get("choice_b", "Choice B"), key=f"choice_b_{sid}_{current_page_index}"):
-        st.session_state.choices.append({"scene": current_page_index + 1, "choice": current_page.get("choice_b", "Choice B")})
-        reaction = apply_branch_choice(story, current_scene_index, current_page.get("choice_b", "Choice B"))
-        st.info(f"Character reaction: {reaction}")
-        st.session_state.live_story = story
-        sync_story_reader(story, reset_index=False)
+    if str(current_page.get("type", "text")) == "text":
+        st.markdown("#### Make Your Choice")
+        ch1, ch2 = st.columns([1, 1])
+        if ch1.button(current_page.get("choice_a", "Choice A"), key=f"choice_a_{sid}_{current_page_index}"):
+            st.session_state.choices.append({"scene": current_scene_index + 1, "choice": current_page.get("choice_a", "Choice A")})
+            reaction = apply_branch_choice(story, current_scene_index, current_page.get("choice_a", "Choice A"))
+            st.success(f"Character reaction: {reaction}")
+            st.session_state.live_story = story
+            sync_story_reader(story, reset_index=False)
+        if ch2.button(current_page.get("choice_b", "Choice B"), key=f"choice_b_{sid}_{current_page_index}"):
+            st.session_state.choices.append({"scene": current_scene_index + 1, "choice": current_page.get("choice_b", "Choice B")})
+            reaction = apply_branch_choice(story, current_scene_index, current_page.get("choice_b", "Choice B"))
+            st.info(f"Character reaction: {reaction}")
+            st.session_state.live_story = story
+            sync_story_reader(story, reset_index=False)
+    else:
+        st.caption("Image page: enjoy the illustration and continue to the next page for narration and choices.")
 
     if current_page_index >= total_pages - 1:
         st.success(f"The End • Moral: {story['moral']}")
+        render_vocabulary_boost(story, sid)
         render_quiz_panel(story, sid)
         recommendation = get_next_story_recommendation(sid, row["story_type"])
         if recommendation:
@@ -3532,10 +3961,6 @@ def story_player_screen() -> None:
             if st.button("Open Recommended Story", key=f"open_reco_{recommendation['id']}"):
                 open_story_in_reader(recommendation["id"])
                 st.rerun()
-
-    with st.expander("Narration Studio", expanded=False):
-        render_voice_tts(story["full_text"])
-        st.caption(f"Selected voice style: {voice_style}")
 
     if st.session_state.choices:
         with st.expander("Your Interactive Path"):
