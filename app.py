@@ -1152,14 +1152,28 @@ def cache_audio_file_name(provider: str, voice_id: str, text: str) -> Path:
     return TTS_CACHE_DIR / f"{fingerprint}.mp3"
 
 
-def generate_openai_tts_audio(text: str, api_key: str, voice_id: str, model: str) -> Optional[bytes]:
+def generate_openai_tts_audio(
+    text: str,
+    api_key: str,
+    voice_id: str,
+    model: str,
+    instructions: str,
+    speed: float,
+) -> Optional[bytes]:
     if not api_key:
         return None
     try:
         response = requests.post(
             "https://api.openai.com/v1/audio/speech",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": model, "voice": voice_id, "input": text, "format": "mp3"},
+            json={
+                "model": model,
+                "voice": voice_id,
+                "input": text,
+                "instructions": instructions,
+                "speed": max(0.75, min(1.25, speed)),
+                "format": "mp3",
+            },
             timeout=35,
         )
         response.raise_for_status()
@@ -1168,7 +1182,14 @@ def generate_openai_tts_audio(text: str, api_key: str, voice_id: str, model: str
         return None
 
 
-def generate_elevenlabs_tts_audio(text: str, api_key: str, voice_id: str, model: str) -> Optional[bytes]:
+def generate_elevenlabs_tts_audio(
+    text: str,
+    api_key: str,
+    voice_id: str,
+    model: str,
+    style: float,
+    stability: float,
+) -> Optional[bytes]:
     if not api_key:
         return None
     try:
@@ -1182,7 +1203,12 @@ def generate_elevenlabs_tts_audio(text: str, api_key: str, voice_id: str, model:
             json={
                 "text": text,
                 "model_id": model,
-                "voice_settings": {"stability": 0.38, "similarity_boost": 0.8, "style": 0.4, "use_speaker_boost": True},
+                "voice_settings": {
+                    "stability": max(0.25, min(0.8, stability)),
+                    "similarity_boost": 0.82,
+                    "style": max(0.05, min(0.9, style)),
+                    "use_speaker_boost": True,
+                },
             },
             timeout=35,
         )
@@ -1192,7 +1218,7 @@ def generate_elevenlabs_tts_audio(text: str, api_key: str, voice_id: str, model:
         return None
 
 
-def get_or_generate_provider_audio(text: str, voice_label: str) -> Dict[str, Any]:
+def get_or_generate_provider_audio(text: str, voice_label: str, delivery: Dict[str, Any]) -> Dict[str, Any]:
     settings = get_tts_provider_settings()
     provider = settings["provider"]
     if provider not in TTS_PROVIDERS or provider == "Browser Speech":
@@ -1200,10 +1226,17 @@ def get_or_generate_provider_audio(text: str, voice_label: str) -> Dict[str, Any
 
     if provider == "OpenAI TTS":
         voice_id = OPENAI_TTS_VOICE_MAP.get(voice_label, "nova")
-        cache_path = cache_audio_file_name(provider, voice_id, text)
+        cache_path = cache_audio_file_name(provider, voice_id, f"{text}|{delivery.get('mood')}|{delivery.get('speed')}")
         if cache_path.exists():
             return {"status": "ready", "engine": "openai_tts", "audio_path": str(cache_path)}
-        audio_bytes = generate_openai_tts_audio(text=text, api_key=settings["openai_key"], voice_id=voice_id, model=settings["openai_model"])
+        audio_bytes = generate_openai_tts_audio(
+            text=text,
+            api_key=settings["openai_key"],
+            voice_id=voice_id,
+            model=settings["openai_model"],
+            instructions=str(delivery.get("openai_instructions", "Read naturally for children.")),
+            speed=float(delivery.get("speed", 1.0)),
+        )
         if not audio_bytes:
             return {"status": "fallback", "engine": "browser_speech", "audio_path": None}
         cache_path.write_bytes(audio_bytes)
@@ -1211,10 +1244,17 @@ def get_or_generate_provider_audio(text: str, voice_label: str) -> Dict[str, Any
 
     if provider == "ElevenLabs":
         voice_id = ELEVENLABS_VOICE_MAP.get(voice_label, "XB0fDUnXU5powFXDhCwa")
-        cache_path = cache_audio_file_name(provider, voice_id, text)
+        cache_path = cache_audio_file_name(provider, voice_id, f"{text}|{delivery.get('mood')}|{delivery.get('eleven_style')}")
         if cache_path.exists():
             return {"status": "ready", "engine": "elevenlabs", "audio_path": str(cache_path)}
-        audio_bytes = generate_elevenlabs_tts_audio(text=text, api_key=settings["elevenlabs_key"], voice_id=voice_id, model=settings["elevenlabs_model"])
+        audio_bytes = generate_elevenlabs_tts_audio(
+            text=text,
+            api_key=settings["elevenlabs_key"],
+            voice_id=voice_id,
+            model=settings["elevenlabs_model"],
+            style=float(delivery.get("eleven_style", 0.4)),
+            stability=float(delivery.get("eleven_stability", 0.45)),
+        )
         if not audio_bytes:
             return {"status": "fallback", "engine": "browser_speech", "audio_path": None}
         cache_path.write_bytes(audio_bytes)
@@ -1280,6 +1320,65 @@ def get_ambience_for_story(story: Dict[str, Any]) -> str:
     return "Magical Chimes"
 
 
+def infer_scene_delivery(story: Dict[str, Any], page: Dict[str, Any]) -> Dict[str, Any]:
+    category = str(story.get("category", "Magical")).lower()
+    text = f"{page.get('text', '')} {page.get('dialogue', '')} {page.get('caption', '')}".lower()
+    page_type = str(page.get("type", "text")).lower()
+
+    mood = "warm_narration"
+    speed = 1.0
+    pitch = 1.0
+    openai_instructions = "Read naturally like a premium children's audiobook narrator."
+    eleven_style = 0.35
+    eleven_stability = 0.45
+
+    suspense_cues = ["mystery", "secret", "shadow", "whisper", "clue", "silent", "unknown"]
+    excited_cues = ["suddenly", "quickly", "ran", "jumped", "wow", "!", "adventure"]
+    calm_cues = ["sleep", "night", "soft", "gentle", "calm", "moon", "bedtime"]
+
+    if page_type == "image":
+        mood = "soft_scene"
+        speed = 0.92
+        pitch = 1.02
+        openai_instructions = "Describe this scene softly and warmly. Keep it short, gentle, and cinematic."
+        eleven_style = 0.25
+        eleven_stability = 0.55
+    elif any(cue in text for cue in suspense_cues) or "mystery" in category:
+        mood = "suspense"
+        speed = 0.9
+        pitch = 1.0
+        openai_instructions = "Read with gentle suspense, curious pauses, and a storytelling tone for children."
+        eleven_style = 0.5
+        eleven_stability = 0.5
+    elif any(cue in text for cue in excited_cues) or "adventure" in category:
+        mood = "excited"
+        speed = 1.08
+        pitch = 1.05
+        openai_instructions = "Read with energetic excitement and clear articulation like an adventure storyteller for kids."
+        eleven_style = 0.55
+        eleven_stability = 0.38
+    elif any(cue in text for cue in calm_cues) or "bedtime" in category:
+        mood = "calm"
+        speed = 0.84
+        pitch = 0.98
+        openai_instructions = "Read softly, soothingly, and slowly like a bedtime narrator for children."
+        eleven_style = 0.3
+        eleven_stability = 0.62
+
+    if page.get("dialogue"):
+        openai_instructions += " Give dialogue lines more expression than narration, while staying child-friendly."
+        eleven_style = min(0.75, eleven_style + 0.08)
+
+    return {
+        "mood": mood,
+        "speed": speed,
+        "pitch": pitch,
+        "openai_instructions": openai_instructions,
+        "eleven_style": eleven_style,
+        "eleven_stability": eleven_stability,
+    }
+
+
 def reset_audio_state_for_new_story(story_id: int) -> None:
     if st.session_state.get("current_story_audio_id") == story_id:
         return
@@ -1293,7 +1392,8 @@ def reset_audio_state_for_new_story(story_id: int) -> None:
 
 
 def generate_audio_for_page(story_id: int, page_index: int, page: Dict[str, Any], voice_label: str) -> Dict[str, Any]:
-    cache_key = f"{story_id}:{page_index}:{voice_label}:{page.get('type', 'text')}"
+    delivery = infer_scene_delivery(story=st.session_state.get("live_story", {}), page=page)
+    cache_key = f"{story_id}:{page_index}:{voice_label}:{page.get('type', 'text')}:{delivery.get('mood')}:{delivery.get('speed')}"
     cache = st.session_state.get("audio_cache", {})
     if cache_key in cache:
         return cache[cache_key]
@@ -1306,13 +1406,14 @@ def generate_audio_for_page(story_id: int, page_index: int, page: Dict[str, Any]
         if dialogue:
             narration = f"{narration}  Dialogue: {dialogue}"
 
-    provider_audio = get_or_generate_provider_audio(narration, voice_label)
+    provider_audio = get_or_generate_provider_audio(narration, voice_label, delivery=delivery)
     audio_payload = {
         "engine": provider_audio.get("engine", "browser_speech"),
         "voice_label": voice_label,
         "narration": narration,
         "status": provider_audio.get("status", "ready"),
         "audio_path": provider_audio.get("audio_path"),
+        "delivery": delivery,
     }
     cache[cache_key] = audio_payload
     st.session_state.audio_cache = cache
@@ -3487,7 +3588,9 @@ def render_listening_section(story: Dict[str, Any], story_id: int, page: Dict[st
         audio_payload = generate_audio_for_page(story_id, page_index, page, voice_profile["label"])
         status = str(audio_payload.get("status", "ready")).title()
         engine = str(audio_payload.get("engine", "browser_speech"))
-        st.caption(f"Page audio status: {status} • Engine: {engine} • Voice: {voice_profile['label']} (Auto suggestion: {auto_voice})")
+        delivery = audio_payload.get("delivery", {})
+        mood = str(delivery.get("mood", "warm_narration")).replace("_", " ").title()
+        st.caption(f"Page audio status: {status} • Engine: {engine} • Delivery: {mood} • Voice: {voice_profile['label']} (Auto suggestion: {auto_voice})")
 
         audio_path = audio_payload.get("audio_path")
         if audio_path:
@@ -3500,6 +3603,11 @@ def render_listening_section(story: Dict[str, Any], story_id: int, page: Dict[st
             st.info("Using browser voice fallback for this page. Configure API keys in Parent Zone to enable premium voices.")
 
         widget_key = f"{story_id}_{page_index}_{re.sub(r'[^a-z0-9]+', '_', voice_profile['label'].lower())}"
+        voice_profile = dict(voice_profile)
+        speed_factor = float(delivery.get("speed", 1.0))
+        pitch_factor = float(delivery.get("pitch", 1.0))
+        voice_profile["rate"] = max(0.75, min(1.25, float(voice_profile.get("rate", 1.0)) * speed_factor))
+        voice_profile["pitch"] = max(0.7, min(1.6, float(voice_profile.get("pitch", 1.0)) * pitch_factor))
         render_speech_widget(audio_payload.get("narration", ""), voice_profile, widget_key, title="Listen to this page")
 
         b1, b2, b3 = st.columns([1, 1, 2])
