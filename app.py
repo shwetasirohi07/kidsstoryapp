@@ -153,6 +153,8 @@ GLOBAL_STORY_RULES = {
     "vocabulary_range": (5, 8),
 }
 
+REWRITE_STYLE_OPTIONS = ["Funny", "Adventurous", "Magical", "Emotional", "Mystery"]
+
 TTS_PROVIDERS = ["Browser Speech", "OpenAI TTS", "ElevenLabs"]
 OPENAI_TTS_VOICE_MAP = {
     "Playful Boy": "alloy",
@@ -1464,7 +1466,7 @@ def generate_audio_for_page(story_id: int, page_index: int, page: Dict[str, Any]
     return audio_payload
 
 
-def render_speech_widget(text: str, voice_profile: Dict[str, Any], widget_key: str, title: str = "Listen to this page") -> None:
+def render_speech_widget(text: str, voice_profile: Dict[str, Any], widget_key: str, title: str = "Listen to this page", auto_play: bool = False) -> None:
     safe_text = json.dumps(str(text or ""))
     safe_regex = json.dumps(str(voice_profile.get("voice_regex", "")))
     rate = float(voice_profile.get("rate", 1.0))
@@ -1518,6 +1520,9 @@ def render_speech_widget(text: str, voice_profile: Dict[str, Any], widget_key: s
         synth_{widget_key}.cancel();
         document.getElementById('state_{widget_key}').textContent = 'Stopped';
       }};
+            if ({str(auto_play).lower()}) {{
+                setTimeout(() => play_{widget_key}(true), 30);
+            }}
     </script>
     """
     components.html(html, height=165, scrolling=False)
@@ -2180,6 +2185,18 @@ def init_state() -> None:
         st.session_state.narration_volume = 0.9
     if "story_open_tune_story_id" not in st.session_state:
         st.session_state.story_open_tune_story_id = None
+    if "current_story_id" not in st.session_state:
+        st.session_state.current_story_id = None
+    if "current_mode" not in st.session_state:
+        st.session_state.current_mode = "read"
+    if "rewritten_story_flag" not in st.session_state:
+        st.session_state.rewritten_story_flag = False
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = 0
+    if "listen_autoplay_once" not in st.session_state:
+        st.session_state.listen_autoplay_once = False
+    if "favorites" not in st.session_state:
+        st.session_state.favorites = {int(r["id"]) for r in list_stories("favorites")}
 
 
 def reset_story_navigation_state() -> None:
@@ -2194,6 +2211,9 @@ def reset_story_navigation_state() -> None:
 
 def open_story_in_reader(story_id: int) -> None:
     st.session_state.active_story_id = story_id
+    st.session_state.current_story_id = story_id
+    st.session_state.current_mode = "read"
+    st.session_state.current_page = 0
     st.session_state.choices = []
     st.session_state.live_story = None
     st.session_state.live_story_id = None
@@ -2202,6 +2222,148 @@ def open_story_in_reader(story_id: int) -> None:
     reset_audio_state_for_new_story(story_id)
     st.session_state.story_open_tune_story_id = None
     st.session_state.screen = "📚 Story Player"
+
+
+def set_story_mode(story_id: int, mode: str, reset_page: bool = False) -> None:
+    # Central mode switcher so read/listen/rewrite never overlap in UI state.
+    st.session_state.current_story_id = story_id
+    st.session_state.current_mode = mode
+    if reset_page:
+        st.session_state.current_page = 0
+        st.session_state.current_page_index = 0
+    st.session_state.page_turning = False
+    st.session_state.page_turn_target = None
+    if mode == "listen":
+        st.session_state.listen_autoplay_once = True
+        st.session_state.playback_mode = "playing"
+    else:
+        st.session_state.listen_autoplay_once = False
+        st.session_state.playback_mode = "stopped"
+
+
+def parse_story_characters(raw_characters: Any) -> List[str]:
+    if isinstance(raw_characters, list):
+        parsed = [str(item).strip() for item in raw_characters if str(item).strip()]
+        return parsed or ["Kids", "Animals"]
+    text = str(raw_characters or "").strip()
+    if not text:
+        return ["Kids", "Animals"]
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            parsed = [str(item).strip() for item in data if str(item).strip()]
+            return parsed or ["Kids", "Animals"]
+    except Exception:
+        pass
+    return ["Kids", "Animals"]
+
+
+def rewrite_story_from_existing(story_id: int, rewrite_style: Optional[str] = None) -> Optional[int]:
+    # Rebuild the same story idea with a fresh style and save it as a new story record.
+    row = get_story(story_id)
+    if not row:
+        return None
+
+    source_story = normalize_story_payload(json.loads(row["content_json"]))
+    style = (rewrite_style or random.choice(REWRITE_STYLE_OPTIONS)).strip().title()
+    style_story_type = {
+        "Funny": "Funny",
+        "Adventurous": "Adventure",
+        "Magical": "Magical",
+        "Emotional": "Bedtime",
+        "Mystery": "Adventure",
+    }.get(style, row["story_type"])
+
+    source_age = str(source_story.get("age_group", "6-8")).strip() or "6-8"
+    source_location = str(row["location"] or "Magical Land").strip()
+    if source_location not in LOCATION_OPTIONS:
+        source_location = "Magical Land"
+
+    moral_key = str(row["moral"] or "Kindness").strip()
+    if moral_key not in MORAL_OPTIONS:
+        moral_key = "Kindness"
+
+    guidance = (
+        f"Rewrite style: {style}. Keep same core idea with fresh scenes, new twists, "
+        "new expressions, and stronger engagement."
+    )
+
+    payload = {
+        "child_name": (source_story.get("title", "Lily").split(" ")[0] or "Lily"),
+        "age_group": source_age,
+        "story_type": style_story_type,
+        "mode": infer_mode(style_story_type, source_age),
+        "characters": parse_story_characters(row["characters"]),
+        "location": source_location,
+        "moral": moral_key,
+        "difficulty": get_auto_difficulty(source_age, row["profile_id"]),
+        "voice_guidance": guidance,
+        "api_provider": "Local Magic Engine",
+        "api_key": "",
+        "model": "",
+    }
+
+    rewritten = generate_story(payload)
+    rewritten["title"] = f"{source_story.get('title', 'Story')} ({style} Rewrite)"
+    rewritten["subtitle"] = f"Fresh {style.lower()} rewrite of a favorite story."
+    rewritten = normalize_story_payload(rewritten)
+    rewritten = enrich_story_with_scene_images(rewritten, "Local Magic Engine", "", "")
+
+    new_story_id = save_story(
+        profile_id=row["profile_id"],
+        payload=rewritten,
+        story_type=style_story_type if style_story_type in STORY_TYPES else row["story_type"],
+        mode=infer_mode(style_story_type, source_age),
+        moral=moral_key,
+        location=source_location,
+        characters=parse_story_characters(row["characters"]),
+    )
+    return new_story_id
+
+
+def render_story_action_buttons(row: sqlite3.Row, key_prefix: str) -> None:
+    # Four-action system shown per story card: Read, Listen, Rewrite, Favorite.
+    story_id = int(row["id"])
+    active_story_id = int(st.session_state.get("current_story_id", -1) or -1)
+    active_mode = str(st.session_state.get("current_mode", "read"))
+    is_active_story = active_story_id == story_id
+
+    b1, b2, b3, b4 = st.columns(4)
+    with b1:
+        if st.button("📖 Read", key=f"{key_prefix}_read_{story_id}", use_container_width=True, type="primary" if is_active_story and active_mode == "read" else "secondary"):
+            open_story_in_reader(story_id)
+            set_story_mode(story_id, "read", reset_page=True)
+            st.rerun()
+    with b2:
+        if st.button("🎧 Listen", key=f"{key_prefix}_listen_{story_id}", use_container_width=True, type="primary" if is_active_story and active_mode == "listen" else "secondary"):
+            open_story_in_reader(story_id)
+            set_story_mode(story_id, "listen", reset_page=True)
+            st.rerun()
+    with b3:
+        if st.button("✍️ Rewrite", key=f"{key_prefix}_rewrite_{story_id}", use_container_width=True, type="primary" if is_active_story and active_mode == "rewrite" else "secondary"):
+            set_story_mode(story_id, "rewrite", reset_page=True)
+            rewrite_style = random.choice(REWRITE_STYLE_OPTIONS)
+            with st.spinner("Rewriting story with a fresh style..."):
+                new_story_id = rewrite_story_from_existing(story_id, rewrite_style=rewrite_style)
+            if new_story_id is None:
+                st.error("Could not rewrite this story right now.")
+                return
+            open_story_in_reader(new_story_id)
+            set_story_mode(new_story_id, "read", reset_page=True)
+            st.session_state.rewritten_story_flag = True
+            st.success("Here's a new version of your story!")
+            st.rerun()
+    with b4:
+        favorite_label = "⭐ Favorited" if int(row["favorite"]) == 1 else "⭐ Favorite"
+        if st.button(favorite_label, key=f"{key_prefix}_fav_{story_id}", use_container_width=True, type="primary" if int(row["favorite"]) == 1 else "secondary"):
+            toggle_favorite(story_id)
+            favorite_ids = set(st.session_state.get("favorites", set()))
+            if story_id in favorite_ids:
+                favorite_ids.remove(story_id)
+            else:
+                favorite_ids.add(story_id)
+            st.session_state.favorites = favorite_ids
+            st.rerun()
 
 
 def normalize_reader_line(text: str) -> str:
@@ -3488,9 +3650,8 @@ def render_home_page(selected_profile: Optional[sqlite3.Row], active_category: s
                     unsafe_allow_html=True,
                 )
             with c2:
-                if st.button("Open Story 📖", key=f"home_reco_open_{row['id']}", use_container_width=True):
-                    open_story_in_reader(row["id"])
-                    st.rerun()
+                st.caption(f"Mode: {row['mode']}")
+            render_story_action_buttons(row, key_prefix="home_story_actions")
     else:
         st.info("No recommendations yet for this category.")
 
@@ -3655,7 +3816,10 @@ def render_listening_section(story: Dict[str, Any], story_id: int, page: Dict[st
         pitch_factor = float(delivery.get("pitch", 1.0))
         voice_profile["rate"] = max(0.75, min(1.25, float(voice_profile.get("rate", 1.0)) * speed_factor))
         voice_profile["pitch"] = max(0.7, min(1.6, float(voice_profile.get("pitch", 1.0)) * pitch_factor))
-        render_speech_widget(audio_payload.get("narration", ""), voice_profile, widget_key, title="Listen to this page")
+        auto_play = bool(st.session_state.get("listen_autoplay_once", False))
+        render_speech_widget(audio_payload.get("narration", ""), voice_profile, widget_key, title="Listen to this page", auto_play=auto_play)
+        if auto_play:
+            st.session_state.listen_autoplay_once = False
 
         b1, b2, b3 = st.columns([1, 1, 2])
         with b1:
@@ -4193,6 +4357,23 @@ def story_player_screen() -> None:
 
     st.markdown(f"## {story['title']}")
     st.caption(story.get("subtitle", ""))
+    if st.session_state.get("current_story_id") != sid:
+        st.session_state.current_story_id = sid
+    if st.session_state.get("current_mode") not in ["read", "listen", "rewrite"]:
+        st.session_state.current_mode = "read"
+
+    action_row = {
+        "id": sid,
+        "favorite": row["favorite"],
+        "mode": row["mode"],
+        "story_type": row["story_type"],
+    }
+    render_story_action_buttons(action_row, key_prefix="player_story_actions")
+
+    if st.session_state.get("rewritten_story_flag"):
+        st.success("Here's a new version of your story!")
+        st.session_state.rewritten_story_flag = False
+
     if st.session_state.get("story_open_tune_story_id") != sid:
         play_sound_bytes(build_quick_open_chime_wav(), mime="audio/wav")
         st.session_state.story_open_tune_story_id = sid
@@ -4206,7 +4387,12 @@ def story_player_screen() -> None:
     st.progress((current_page_index + 1) / total_pages, text=f"Page {current_page_index + 1} of {total_pages}")
     render_story_page(current_page, current_page_index, total_pages)
     render_navigation(sid)
-    render_listening_section(story, sid, current_page, current_page_index, total_pages)
+
+    active_mode = st.session_state.get("current_mode", "read")
+    if active_mode == "listen":
+        render_listening_section(story, sid, current_page, current_page_index, total_pages)
+    else:
+        st.caption("Reading mode active. Switch to 🎧 Listen for narration controls.")
 
     if str(current_page.get("type", "text")) == "text":
         st.markdown("#### Make Your Choice")
@@ -4309,12 +4495,8 @@ def library_screen() -> None:
                     st.caption(f"Reads: {row['read_count']} | Favorite: {'Yes' if row['favorite'] else 'No'}")
                     st.caption(f"Created: {row['created_at']}")
                 with col3:
-                    if st.button("Open Story 📖", key=f"open_{filter_name}_{row['id']}"):
-                        open_story_in_reader(row["id"])
-                        st.rerun()
-                    if st.button("Favorite ⭐", key=f"fav_{filter_name}_{row['id']}"):
-                        toggle_favorite(row["id"])
-                        st.rerun()
+                    st.caption(f"Type: {row['story_type']}")
+                render_story_action_buttons(row, key_prefix=f"library_{filter_name}")
 
 
 def parent_zone_screen() -> None:
