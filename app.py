@@ -7,6 +7,7 @@ import re
 import sqlite3
 import struct
 import time
+import base64
 from datetime import datetime
 from html import escape
 from pathlib import Path
@@ -1040,6 +1041,49 @@ def play_sound(sound_url: str, sound_name: str = "sound") -> None:
     <audio autoplay>
         <source src="{sound_url}" type="audio/ogg">
         <source src="{sound_url}" type="audio/mpeg">
+    </audio>
+    """
+    components.html(audio_html, height=0)
+
+
+@st.cache_data(show_spinner=False)
+def build_quick_open_chime_wav() -> bytes:
+    sample_rate = 22050
+    duration = 0.24
+    total_samples = int(sample_rate * duration)
+    frames = bytearray()
+    for n in range(total_samples):
+        t = n / sample_rate
+        env = 1.0
+        if t < 0.03:
+            env = t / 0.03
+        elif t > duration - 0.08:
+            env = max(0.0, (duration - t) / 0.08)
+        tone = math.sin(2.0 * math.pi * 740.0 * t)
+        shimmer = 0.38 * math.sin(2.0 * math.pi * 1110.0 * t)
+        sample = int(14500 * env * (0.72 * tone + 0.28 * shimmer))
+        frames.extend(struct.pack("<h", max(-32767, min(32767, sample))))
+
+    wav = io.BytesIO()
+    data_size = len(frames)
+    byte_rate = sample_rate * 2
+    wav.write(b"RIFF")
+    wav.write(struct.pack("<I", 36 + data_size))
+    wav.write(b"WAVEfmt ")
+    wav.write(struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, byte_rate, 2, 16))
+    wav.write(b"data")
+    wav.write(struct.pack("<I", data_size))
+    wav.write(frames)
+    return wav.getvalue()
+
+
+def play_sound_bytes(audio_bytes: bytes, mime: str = "audio/wav") -> None:
+    if not audio_bytes:
+        return
+    b64 = base64.b64encode(audio_bytes).decode("ascii")
+    audio_html = f"""
+    <audio autoplay>
+      <source src="data:{mime};base64,{b64}" type="{mime}">
     </audio>
     """
     components.html(audio_html, height=0)
@@ -2345,6 +2389,7 @@ def render_navigation(story_id: int) -> None:
             use_container_width=True,
             disabled=current_page_index == 0,
         ):
+            play_sound(PAGE_TURN_SOUND, "page_turn_click_prev")
             st.session_state.page_turning = True
             st.session_state.page_turn_target = current_page_index - 1
             st.rerun()
@@ -2361,6 +2406,7 @@ def render_navigation(story_id: int) -> None:
             use_container_width=True,
             disabled=current_page_index >= total_pages - 1,
         ):
+            play_sound(PAGE_TURN_SOUND, "page_turn_click_next")
             st.session_state.page_turning = True
             st.session_state.page_turn_target = current_page_index + 1
             st.rerun()
@@ -3613,22 +3659,24 @@ def render_listening_section(story: Dict[str, Any], story_id: int, page: Dict[st
 
         b1, b2, b3 = st.columns([1, 1, 2])
         with b1:
-                if st.button("Previous page ⬅", key=f"audio_prev_{story_id}_{page_index}", disabled=page_index == 0):
-                        st.session_state.page_turning = True
-                        st.session_state.page_turn_target = max(0, page_index - 1)
-                        st.rerun()
+            if st.button("Previous page ⬅", key=f"audio_prev_{story_id}_{page_index}", disabled=page_index == 0):
+                play_sound(PAGE_TURN_SOUND, "page_turn_audio_prev")
+                st.session_state.page_turning = True
+                st.session_state.page_turn_target = max(0, page_index - 1)
+                st.rerun()
         with b2:
-                if st.button("Next page ➜", key=f"audio_next_{story_id}_{page_index}", disabled=page_index >= total_pages - 1):
-                        st.session_state.page_turning = True
-                        st.session_state.page_turn_target = min(total_pages - 1, page_index + 1)
-                        st.rerun()
+            if st.button("Next page ➜", key=f"audio_next_{story_id}_{page_index}", disabled=page_index >= total_pages - 1):
+                play_sound(PAGE_TURN_SOUND, "page_turn_audio_next")
+                st.session_state.page_turning = True
+                st.session_state.page_turn_target = min(total_pages - 1, page_index + 1)
+                st.rerun()
         with b3:
-                ambience_enabled = st.toggle("Ambience on/off", value=bool(st.session_state.get("ambience_enabled", False)), key=f"ambience_toggle_{story_id}")
-                st.session_state.ambience_enabled = ambience_enabled
-                ambience_default = get_ambience_for_story(story)
-                ambience_choice = st.selectbox("Scene ambience", list(AMBIENCE_TRACKS.keys()), index=list(AMBIENCE_TRACKS.keys()).index(ambience_default) if ambience_default in AMBIENCE_TRACKS else 0, key=f"ambience_choice_{story_id}")
-                if ambience_enabled and AMBIENCE_TRACKS.get(ambience_choice):
-                    render_ambience_track(ambience_choice)
+            ambience_enabled = st.toggle("Ambience on/off", value=bool(st.session_state.get("ambience_enabled", False)), key=f"ambience_toggle_{story_id}")
+            st.session_state.ambience_enabled = ambience_enabled
+            ambience_default = get_ambience_for_story(story)
+            ambience_choice = st.selectbox("Scene ambience", list(AMBIENCE_TRACKS.keys()), index=list(AMBIENCE_TRACKS.keys()).index(ambience_default) if ambience_default in AMBIENCE_TRACKS else 0, key=f"ambience_choice_{story_id}")
+            if ambience_enabled and AMBIENCE_TRACKS.get(ambience_choice):
+                render_ambience_track(ambience_choice)
 
 
 def render_quiz_panel(story: Dict[str, Any], story_id: int) -> None:
@@ -4130,7 +4178,6 @@ def story_player_screen() -> None:
     if st.session_state.page_turning and st.session_state.page_turn_target is not None:
         target_page_index = min(max(0, int(st.session_state.page_turn_target)), total_pages - 1)
         if target_page_index != current_page_index:
-            play_sound(PAGE_TURN_SOUND, "page_turn_auto")
             st.progress((current_page_index + 1) / total_pages, text=f"Turning to page {target_page_index + 1}...")
             render_page_turn_transition(target_page_index + 1)
             time.sleep(0.36)
@@ -4147,7 +4194,7 @@ def story_player_screen() -> None:
     st.markdown(f"## {story['title']}")
     st.caption(story.get("subtitle", ""))
     if st.session_state.get("story_open_tune_story_id") != sid:
-        play_sound("https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg", "story_open_tune")
+        play_sound_bytes(build_quick_open_chime_wav(), mime="audio/wav")
         st.session_state.story_open_tune_story_id = sid
 
     total_pages = max(1, int(st.session_state.get("total_pages", 0) or 0))
