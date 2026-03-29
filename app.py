@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 from html import escape
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import quote_plus
 
 import requests
@@ -31,6 +31,17 @@ APP_TAGLINE = "Magical stories. Bright young minds."
 STORY_SCHEMA_VERSION = "2.0"
 
 AGE_GROUPS = ["3-5", "6-8", "9-12"]
+DEFAULT_RECOMMENDATION_OPTIONS = [
+    "All Children",
+    "Ages 3–5",
+    "Ages 5–8",
+    "Ages 8–12",
+]
+RECOMMENDATION_AGE_MAP = {
+    "Ages 3–5": {"3-5"},
+    "Ages 5–8": {"5-8", "6-8"},
+    "Ages 8–12": {"8-12", "9-12"},
+}
 CATEGORY_OPTIONS = ["Bedtime", "Adventure", "Funny", "Magical"]
 STORY_TYPES = CATEGORY_OPTIONS
 STORY_MODES = ["Quick Story", "Bedtime Story", "Adventure Mode", "Learn & Grow"]
@@ -57,6 +68,43 @@ SFX_TRACKS = {
     "Magic": "https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg",
     "Footsteps": "https://actions.google.com/sounds/v1/foley/footsteps_on_gravel.ogg",
 }
+
+# Story-specific sound effects
+CATEGORY_SOUNDS = {
+    "Adventure": "https://actions.google.com/sounds/v1/animals/lion_roar.ogg",
+    "Bedtime": "https://actions.google.com/sounds/v1/alarms/gentle_bell.ogg",
+    "Funny": "https://actions.google.com/sounds/v1/cartoon/cartoon_laugh.ogg",
+    "Magical": "https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg",
+}
+
+# Mode-specific sound effects
+MODE_SOUNDS = {
+    "Quick Story": "https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg",
+    "Bedtime Story": "https://actions.google.com/sounds/v1/alarms/gentle_bell.ogg",
+    "Adventure Mode": "https://actions.google.com/sounds/v1/animals/lion_roar.ogg",
+    "Learn & Grow": "https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg",
+}
+
+# Location-specific sound effects
+LOCATION_SOUNDS = {
+    "Jungle": "https://actions.google.com/sounds/v1/animals/birds_in_forest.ogg",
+    "Space": "https://actions.google.com/sounds/v1/scifi/laser_beam.ogg",
+    "Ocean": "https://actions.google.com/sounds/v1/animals/sea_waves.ogg",
+    "School": "https://actions.google.com/sounds/v1/alarms/school_bell.ogg",
+    "Magical Land": "https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg",
+    "Mountain Village": "https://actions.google.com/sounds/v1/alarms/gentle_bell.ogg",
+}
+
+# Moral-specific sound effects  
+MORAL_SOUNDS = {
+    "Kindness": "https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg",
+    "Honesty": "https://actions.google.com/sounds/v1/alarms/gentle_bell.ogg",
+    "Bravery": "https://actions.google.com/sounds/v1/animals/lion_roar.ogg",
+    "Sharing": "https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg",
+}
+
+# Page turning sound
+PAGE_TURN_SOUND = "https://actions.google.com/sounds/v1/paper/page_flip.ogg"
 
 MORAL_LINES = {
     "Kindness": "Kindness turns small moments into big magic.",
@@ -757,6 +805,112 @@ def get_recommendations(profile_id: Optional[int]) -> List[str]:
     return (ranked + fallback)[:3]
 
 
+def _normalize_age_band(age_group: str) -> str:
+    return str(age_group).replace("–", "-").strip()
+
+
+def get_recommendation_options(profiles: List[sqlite3.Row]) -> Tuple[List[str], Dict[str, sqlite3.Row]]:
+    options = list(DEFAULT_RECOMMENDATION_OPTIONS)
+    profile_option_map: Dict[str, sqlite3.Row] = {}
+    for profile in profiles:
+        label = f"{profile['avatar']} {profile['child_name']} ({profile['age_group']})"
+        options.append(label)
+        profile_option_map[label] = profile
+
+    # Keep ordering stable and prevent duplicate labels.
+    unique_options = list(dict.fromkeys(options))
+    if not unique_options:
+        unique_options = list(DEFAULT_RECOMMENDATION_OPTIONS)
+    return unique_options, profile_option_map
+
+
+def filter_stories_by_age(rows: List[sqlite3.Row], profiles: List[sqlite3.Row], selected_option: str) -> List[sqlite3.Row]:
+    valid_ages = RECOMMENDATION_AGE_MAP.get(selected_option)
+    if not valid_ages:
+        return rows
+
+    profile_ids = {
+        int(profile["id"])
+        for profile in profiles
+        if _normalize_age_band(profile["age_group"]) in valid_ages
+    }
+    if not profile_ids:
+        return rows
+
+    filtered_rows = [row for row in rows if row["profile_id"] in profile_ids]
+    return filtered_rows or rows
+
+
+def get_recommendation_seed_categories(
+    selected_option: str,
+    profiles: List[sqlite3.Row],
+    profile_option_map: Dict[str, sqlite3.Row],
+) -> List[str]:
+    if selected_option in profile_option_map:
+        return get_recommendations(int(profile_option_map[selected_option]["id"]))
+
+    rows = list_stories("all")
+    if selected_option in RECOMMENDATION_AGE_MAP:
+        rows = filter_stories_by_age(rows, profiles, selected_option)
+
+    if not rows:
+        return ["Magical", "Adventure", "Bedtime"]
+
+    category_counts: Dict[str, int] = {}
+    for row in rows:
+        category = story_category_from_row(row)
+        category_counts[category] = category_counts.get(category, 0) + 1
+
+    ranked = sorted(category_counts.keys(), key=lambda cat: category_counts[cat], reverse=True)
+    fallback = [category for category in STORY_TYPES if category not in ranked]
+    return (ranked + fallback)[:3]
+
+
+def get_home_recommendation_rows(
+    selected_option: str,
+    profiles: List[sqlite3.Row],
+    profile_option_map: Dict[str, sqlite3.Row],
+    active_category: str,
+    limit: int = 4,
+) -> List[sqlite3.Row]:
+    all_rows = list_stories("all")
+    category_rows = [row for row in all_rows if story_category_from_row(row) == active_category]
+    scoped_rows = category_rows or all_rows
+
+    if selected_option in profile_option_map:
+        profile_id = int(profile_option_map[selected_option]["id"])
+        selected_rows = [row for row in scoped_rows if row["profile_id"] == profile_id]
+        other_rows = [row for row in scoped_rows if row["profile_id"] != profile_id]
+        scoped_rows = selected_rows + other_rows
+    elif selected_option in RECOMMENDATION_AGE_MAP:
+        scoped_rows = filter_stories_by_age(scoped_rows, profiles, selected_option)
+
+    ranked_rows = sorted(
+        scoped_rows,
+        key=lambda row: (-int(row["favorite"]), int(row["read_count"]), str(row["created_at"])),
+    )
+    return ranked_rows[:limit]
+
+
+def render_recommendation_filter(profiles: List[sqlite3.Row]) -> Tuple[str, Dict[str, sqlite3.Row]]:
+    options, profile_option_map = get_recommendation_options(profiles)
+    current_value = str(st.session_state.get("home_recommendation_filter", DEFAULT_RECOMMENDATION_OPTIONS[0]))
+    if current_value not in options:
+        current_value = options[0]
+
+    selected_option = st.selectbox(
+        "Recommendations for",
+        options=options,
+        index=options.index(current_value),
+        key="home_recommendation_filter_select",
+        help="Choose all children, an age band, or a specific profile.",
+    )
+
+    st.session_state.home_recommendation_filter = selected_option
+    st.session_state.home_selected_profile_label = selected_option if selected_option in profile_option_map else "All Children"
+    return selected_option, profile_option_map
+
+
 def get_auto_difficulty(age_group: str, profile_id: Optional[int]) -> str:
     base = {"3-5": "gentle", "6-8": "balanced", "9-12": "rich"}[age_group]
     if profile_id is None:
@@ -768,6 +922,20 @@ def get_auto_difficulty(age_group: str, profile_id: Optional[int]) -> str:
     if avg_reads > 2 and base != "rich":
         return "balanced" if base == "gentle" else "rich"
     return base
+
+
+def play_sound(sound_url: str, sound_name: str = "sound") -> None:
+    """Play a sound effect using HTML5 audio."""
+    if not sound_url or sound_url.strip() == "":
+        return
+    
+    audio_html = f"""
+    <audio autoplay>
+        <source src="{sound_url}" type="audio/ogg">
+        <source src="{sound_url}" type="audio/mpeg">
+    </audio>
+    """
+    components.html(audio_html, height=0)
 
 
 def safe_json_extract(text: str) -> Optional[Dict[str, Any]]:
@@ -1398,6 +1566,14 @@ def init_state() -> None:
         st.session_state.quiz_total = None
     if "home_category_filter" not in st.session_state:
         st.session_state.home_category_filter = "Magical"
+    if "home_selected_profile_label" not in st.session_state:
+        st.session_state.home_selected_profile_label = "All Children"
+    if "home_recommendation_filter" not in st.session_state:
+        st.session_state.home_recommendation_filter = st.session_state.home_selected_profile_label
+    if "home_recommendation_filter_select" not in st.session_state:
+        st.session_state.home_recommendation_filter_select = st.session_state.home_recommendation_filter
+    if "home_last_recommendation_filter" not in st.session_state:
+        st.session_state.home_last_recommendation_filter = st.session_state.home_recommendation_filter
 
 
 def reset_story_navigation_state() -> None:
@@ -1574,6 +1750,7 @@ def render_navigation(story_id: int) -> None:
             use_container_width=True,
             disabled=current_page_index == 0,
         ):
+            play_sound(PAGE_TURN_SOUND, "page_turn")
             st.session_state.page_turning = True
             st.session_state.page_turn_target = current_page_index - 1
             st.rerun()
@@ -1590,6 +1767,7 @@ def render_navigation(story_id: int) -> None:
             use_container_width=True,
             disabled=current_page_index >= total_pages - 1,
         ):
+            play_sound(PAGE_TURN_SOUND, "page_turn")
             st.session_state.page_turning = True
             st.session_state.page_turn_target = current_page_index + 1
             st.rerun()
@@ -1793,19 +1971,15 @@ def style_app(platform_mode: str) -> None:
                 transform: translateY(-4px) scale(1.01);
                 box-shadow: 0 20px 34px rgba(34, 24, 77, 0.2);
             }}
-            .sparkles, .clouds, .balloons {{
+            .stars, .clouds, .butterflies, .creatures {{
                 position: fixed;
                 inset: 0;
                 pointer-events: none;
-                z-index: 0;
-            }}
-            .sparkles span {{
-                position: absolute;
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                background: #fbbf24;
-                animation: twinkle 4s ease-in-out infinite;
+                z-index: 2;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
             }}
             .clouds span {{
                 position: absolute;
@@ -1816,12 +1990,22 @@ def style_app(platform_mode: str) -> None:
                 filter: blur(1px);
                 animation: drift 24s linear infinite;
             }}
-            .balloons span {{
+            .stars span {{
                 position: absolute;
-                width: 22px;
-                height: 28px;
-                border-radius: 50% 50% 45% 45%;
-                animation: floaty 6s ease-in-out infinite;
+                font-size: 1.4rem;
+                animation: twinkleStar 5s ease-in-out infinite;
+                filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.55));
+            }}
+            .butterflies span {{
+                position: absolute;
+                font-size: 2rem;
+                animation: flutter 3.5s ease-in-out infinite;
+            }}
+            .creatures span {{
+                position: absolute;
+                font-size: 2.2rem;
+                animation: wander 8s ease-in-out infinite;
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
             }}
             @keyframes twinkle {{
                 0%, 100% {{ transform: scale(0.5); opacity: 0.3; }}
@@ -1831,9 +2015,27 @@ def style_app(platform_mode: str) -> None:
                 from {{ transform: translateX(-180px); }}
                 to {{ transform: translateX(110vw); }}
             }}
-            @keyframes floaty {{
-                0%,100% {{ transform: translateY(0); }}
-                50% {{ transform: translateY(-14px); }}
+            @keyframes twinkleStar {{
+                0%, 100% {{ transform: translateY(0) scale(0.9); opacity: 0.45; }}
+                50% {{ transform: translateY(-8px) scale(1.15); opacity: 1; }}
+            }}
+            @keyframes flutter {{
+                0% {{ transform: translateX(0) translateY(0) rotate(0deg); }}
+                25% {{ transform: translateX(30px) translateY(-20px) rotate(-15deg); }}
+                50% {{ transform: translateX(0) translateY(-40px) rotate(0deg); }}
+                75% {{ transform: translateX(-30px) translateY(-20px) rotate(15deg); }}
+                100% {{ transform: translateX(0) translateY(0) rotate(0deg); }}
+            }}
+            @keyframes wander {{
+                0% {{ transform: translateX(0) translateY(0) scale(1); opacity: 0.8; }}
+                25% {{ transform: translateX(40px) translateY(-30px) scale(1.05); }}
+                50% {{ transform: translateX(20px) translateY(-60px) scale(1); }}
+                75% {{ transform: translateX(-30px) translateY(-40px) scale(0.95); }}
+                100% {{ transform: translateX(0) translateY(0) scale(1); opacity: 0.8; }}
+            }}
+            @keyframes bounce {{
+                0%, 100% {{ transform: translateY(0); }}
+                50% {{ transform: translateY(-25px); }}
             }}
             .hero-title {{
                 font-size: 3rem;
@@ -1963,6 +2165,14 @@ def style_app(platform_mode: str) -> None:
                 font-family: 'Fredoka', sans-serif;
                 color: #9a3412;
                 margin-bottom: 0.35rem;
+                font-weight: 800;
+            }}
+            .story-dialogue p {{
+                margin: 0;
+                color: #1f1b45 !important;
+                font-size: 1.02rem;
+                line-height: 1.7;
+                font-weight: 700;
             }}
             .reader-nav-note {{
                 text-align: center;
@@ -1991,6 +2201,66 @@ def style_app(platform_mode: str) -> None:
                 color: {alert_text} !important;
                 font-weight: 700 !important;
             }}
+            .stSelectbox {{
+                position: relative;
+                z-index: 25;
+            }}
+            div[data-baseweb="select"] > div {{
+                background: rgba(255, 255, 255, 0.96) !important;
+                color: #1f1b45 !important;
+                border: 1px solid rgba(96, 165, 250, 0.55) !important;
+                border-radius: 14px !important;
+                box-shadow: 0 8px 18px rgba(34, 24, 77, 0.12) !important;
+            }}
+            .stTextInput input,
+            .stTextArea textarea,
+            div[data-baseweb="input"] input,
+            div[data-baseweb="textarea"] textarea {{
+                background: rgba(255, 255, 255, 0.96) !important;
+                color: #1f1b45 !important;
+                border: 1px solid rgba(96, 165, 250, 0.45) !important;
+                border-radius: 12px !important;
+            }}
+            .stTextInput input::placeholder,
+            .stTextArea textarea::placeholder,
+            div[data-baseweb="input"] input::placeholder,
+            div[data-baseweb="textarea"] textarea::placeholder {{
+                color: #64748b !important;
+                opacity: 1 !important;
+            }}
+            .stNumberInput input,
+            .stDateInput input,
+            .stTimeInput input {{
+                background: rgba(255, 255, 255, 0.96) !important;
+                color: #1f1b45 !important;
+            }}
+            div[data-baseweb="popover"] {{
+                z-index: 10000 !important;
+            }}
+            ul[role="listbox"] {{
+                background: #ffffff !important;
+                border: 2px solid rgba(96, 165, 250, 0.5) !important;
+                border-radius: 12px !important;
+                box-shadow: 0 14px 28px rgba(34, 24, 77, 0.25) !important;
+                padding: 8px 0 !important;
+            }}
+            li[role="option"] {{
+                background-color: #ffffff !important;
+                color: #1f1b45 !important;
+                font-weight: 500 !important;
+                padding: 10px 16px !important;
+                margin: 2px 8px !important;
+                border-radius: 8px !important;
+            }}
+            li[role="option"]:hover {{
+                background-color: #f0f9ff !important;
+                color: #1e40af !important;
+            }}
+            li[role="option"][aria-selected="true"] {{
+                background: #dbeafe !important;
+                color: #1e3a8a !important;
+                font-weight: 600 !important;
+            }}
             div.stButton > button {{
                 background: linear-gradient(120deg, #60a5fa, #f472b6) !important;
                 color: #ffffff !important;
@@ -2000,30 +2270,56 @@ def style_app(platform_mode: str) -> None:
                 box-shadow: 0 8px 18px rgba(96, 165, 250, 0.35) !important;
                 transition: transform .2s ease !important;
             }}
+            div.stDownloadButton > button,
+            div.stLinkButton > a,
+            div[data-testid="stLinkButton"] > a {{
+                background: linear-gradient(120deg, #60a5fa, #f472b6) !important;
+                color: #ffffff !important;
+                border: none !important;
+                border-radius: 999px !important;
+                font-weight: 800 !important;
+                box-shadow: 0 8px 18px rgba(96, 165, 250, 0.35) !important;
+                text-decoration: none !important;
+                min-height: 2.5rem !important;
+                width: 100% !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                transition: transform .2s ease !important;
+            }}
             div.stButton > button:hover {{
+                transform: translateY(-2px) scale(1.02);
+                box-shadow: 0 12px 24px rgba(96, 165, 250, 0.4) !important;
+            }}
+            div.stDownloadButton > button:hover,
+            div.stLinkButton > a:hover,
+            div[data-testid="stLinkButton"] > a:hover {{
                 transform: translateY(-2px) scale(1.02);
                 box-shadow: 0 12px 24px rgba(96, 165, 250, 0.4) !important;
             }}
         </style>
 
-        <div class="sparkles">
-            <span style="top:8%; left:10%; animation-delay:0s"></span>
-            <span style="top:14%; left:30%; animation-delay:1s"></span>
-            <span style="top:22%; left:74%; animation-delay:2s"></span>
-            <span style="top:35%; left:82%; animation-delay:3s"></span>
-            <span style="top:60%; left:15%; animation-delay:1.7s"></span>
-            <span style="top:72%; left:48%; animation-delay:2.8s"></span>
-            <span style="top:80%; left:88%; animation-delay:0.8s"></span>
-        </div>
         <div class="clouds">
             <span style="top:6%; left:-100px; animation-delay:0s"></span>
             <span style="top:20%; left:-220px; animation-delay:7s"></span>
             <span style="top:42%; left:-180px; animation-delay:11s"></span>
         </div>
-        <div class="balloons">
-            <span style="background:#fda4af; top:68%; left:8%; animation-delay:.2s"></span>
-            <span style="background:#93c5fd; top:74%; left:15%; animation-delay:1.2s"></span>
-            <span style="background:#86efac; top:70%; left:90%; animation-delay:.9s"></span>
+        <div class="stars">
+            <span style="top:10%; left:18%; animation-delay:.2s">⭐</span>
+            <span style="top:18%; left:84%; animation-delay:1.1s">✨</span>
+            <span style="top:52%; left:6%; animation-delay:2.1s">⭐</span>
+            <span style="top:76%; left:78%; animation-delay:1.7s">✨</span>
+        </div>
+        <div class="butterflies">
+            <span style="top:15%; left:5%; animation-delay:0s">🦋</span>
+            <span style="top:40%; left:92%; animation-delay:1.5s">🦋</span>
+            <span style="top:25%; left:45%; animation-delay:0.8s">🦋</span>
+        </div>
+        <div class="creatures">
+            <span style="top:35%; left:8%; animation-delay:0s">🐰</span>
+            <span style="top:55%; left:85%; animation-delay:1.2s">🦊</span>
+            <span style="top:20%; left:75%; animation-delay:2.5s">🐻</span>
+            <span style="top:65%; left:20%; animation-delay:1.8s">🐾</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2065,11 +2361,7 @@ def screen_nav() -> None:
                 st.session_state.screen = nav_items_for_mode("kids")[0]
                 st.rerun()
         else:
-            if st.button("Switch to Real Estate Mode 🏢", key="switch_real_estate_mode"):
-                st.session_state.platform_mode = "real_estate"
-                set_setting("platform_mode", "real_estate")
-                st.session_state.screen = nav_items_for_mode("real_estate")[0]
-                st.rerun()
+            st.caption("Story Mode Active 🧸")
 
         nav_items = nav_items_for_mode(st.session_state.platform_mode)
         if st.session_state.screen not in nav_items:
@@ -2559,9 +2851,15 @@ def render_home_page(selected_profile: Optional[sqlite3.Row], active_category: s
 def home_screen() -> None:
     st.markdown("### 🏠 Home")
     profiles = get_profiles()
-    profile_map = {f"{p['avatar']} {p['child_name']} ({p['age_group']})": p for p in profiles}
-    selected_profile_label = st.selectbox("Recommendations for", options=["All Children"] + list(profile_map.keys()), key="home_profile_reco_select")
-    selected_profile = None if selected_profile_label == "All Children" else profile_map[selected_profile_label]
+
+    selected_filter, profile_option_map = render_recommendation_filter(profiles)
+    selected_profile = profile_option_map.get(selected_filter)
+
+    if st.session_state.home_last_recommendation_filter != selected_filter:
+        st.session_state.home_last_recommendation_filter = selected_filter
+        recommended_categories = get_recommendation_seed_categories(selected_filter, profiles, profile_option_map)
+        if recommended_categories:
+            st.session_state.home_category_filter = recommended_categories[0]
 
     st.markdown("#### Categories")
     cat_cols = st.columns(len(STORY_TYPES))
@@ -2570,7 +2868,13 @@ def home_screen() -> None:
             st.session_state.home_category_filter = category
 
     active_category = st.session_state.home_category_filter
-    rec_rows = get_category_recommendations(selected_profile["id"] if selected_profile else None, active_category, limit=4)
+    rec_rows = get_home_recommendation_rows(
+        selected_option=selected_filter,
+        profiles=profiles,
+        profile_option_map=profile_option_map,
+        active_category=active_category,
+        limit=4,
+    )
 
     render_home_page(selected_profile, active_category, rec_rows)
 
@@ -2999,12 +3303,39 @@ def create_story_screen() -> None:
         default_difficulty = difficulty_label_from_age(selected_profile["age_group"]) if selected_profile else "Medium (5-8)"
         difficulty_label = st.selectbox("Difficulty level", list(DIFFICULTY_OPTIONS.keys()), index=list(DIFFICULTY_OPTIONS.keys()).index(default_difficulty))
         age_group = DIFFICULTY_OPTIONS[difficulty_label]
-        story_type = st.selectbox("Category", STORY_TYPES)
+        story_type = st.selectbox("Category", STORY_TYPES, key="custom_story_type_select")
+        
+        # Play sound when category changes
+        previous_story_type = st.session_state.get("previous_story_type", None)
+        if story_type != previous_story_type:
+            if story_type in CATEGORY_SOUNDS:
+                play_sound(CATEGORY_SOUNDS[story_type], f"{story_type}_sound")
+            st.session_state.previous_story_type = story_type
 
     with col2:
         mode = st.radio("Story mode", STORY_MODES)
-        moral = st.selectbox("Moral", MORAL_OPTIONS)
-        location = st.selectbox("Location", LOCATION_OPTIONS)
+        # Play sound when mode changes
+        previous_mode = st.session_state.get("previous_story_mode", None)
+        if mode != previous_mode:
+            if mode in MODE_SOUNDS:
+                play_sound(MODE_SOUNDS[mode], f"{mode}_sound")
+            st.session_state.previous_story_mode = mode
+            
+        moral = st.selectbox("Moral", MORAL_OPTIONS, key="custom_moral_select")
+        # Play sound when moral changes
+        previous_moral = st.session_state.get("previous_moral", None)
+        if moral != previous_moral:
+            if moral in MORAL_SOUNDS:
+                play_sound(MORAL_SOUNDS[moral], f"{moral}_sound")
+            st.session_state.previous_moral = moral
+            
+        location = st.selectbox("Location", LOCATION_OPTIONS, key="custom_location_select")
+        # Play sound when location changes
+        previous_location = st.session_state.get("previous_location", None)
+        if location != previous_location:
+            if location in LOCATION_SOUNDS:
+                play_sound(LOCATION_SOUNDS[location], f"{location}_sound")
+            st.session_state.previous_location = location
 
     with col3:
         characters = st.multiselect("Characters", CHARACTER_OPTIONS, default=["Animals", "Kids"])
