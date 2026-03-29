@@ -2134,6 +2134,8 @@ def init_state() -> None:
         st.session_state.narration_speed = 1.0
     if "narration_volume" not in st.session_state:
         st.session_state.narration_volume = 0.9
+    if "story_open_tune_story_id" not in st.session_state:
+        st.session_state.story_open_tune_story_id = None
 
 
 def reset_story_navigation_state() -> None:
@@ -2154,6 +2156,7 @@ def open_story_in_reader(story_id: int) -> None:
     reset_story_navigation_state()
     reset_quiz_state()
     reset_audio_state_for_new_story(story_id)
+    st.session_state.story_open_tune_story_id = None
     st.session_state.screen = "📚 Story Player"
 
 
@@ -2342,7 +2345,6 @@ def render_navigation(story_id: int) -> None:
             use_container_width=True,
             disabled=current_page_index == 0,
         ):
-            play_sound(PAGE_TURN_SOUND, "page_turn")
             st.session_state.page_turning = True
             st.session_state.page_turn_target = current_page_index - 1
             st.rerun()
@@ -2359,7 +2361,6 @@ def render_navigation(story_id: int) -> None:
             use_container_width=True,
             disabled=current_page_index >= total_pages - 1,
         ):
-            play_sound(PAGE_TURN_SOUND, "page_turn")
             st.session_state.page_turning = True
             st.session_state.page_turn_target = current_page_index + 1
             st.rerun()
@@ -4129,6 +4130,7 @@ def story_player_screen() -> None:
     if st.session_state.page_turning and st.session_state.page_turn_target is not None:
         target_page_index = min(max(0, int(st.session_state.page_turn_target)), total_pages - 1)
         if target_page_index != current_page_index:
+            play_sound(PAGE_TURN_SOUND, "page_turn_auto")
             st.progress((current_page_index + 1) / total_pages, text=f"Turning to page {target_page_index + 1}...")
             render_page_turn_transition(target_page_index + 1)
             time.sleep(0.36)
@@ -4144,10 +4146,9 @@ def story_player_screen() -> None:
 
     st.markdown(f"## {story['title']}")
     st.caption(story.get("subtitle", ""))
-
-    home_audio = st.toggle("Play welcome jingle ✨", value=False, key=f"welcome_jingle_{sid}")
-    if home_audio:
-        play_sound("https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg", "welcome_jingle")
+    if st.session_state.get("story_open_tune_story_id") != sid:
+        play_sound("https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg", "story_open_tune")
+        st.session_state.story_open_tune_story_id = sid
 
     total_pages = max(1, int(st.session_state.get("total_pages", 0) or 0))
     current_page_index = min(max(0, st.session_state.get("current_page_index", 0)), total_pages - 1)
