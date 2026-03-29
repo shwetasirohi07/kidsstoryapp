@@ -2047,6 +2047,7 @@ def style_app(platform_mode: str) -> None:
                 overflow: hidden;
                 border-radius: 30px;
                 padding: 1.6rem 1.5rem;
+                padding-right: 5rem;
                 margin-bottom: 1rem;
                 background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(224,242,254,0.86) 35%, rgba(243,232,255,0.92) 70%, rgba(254,240,138,0.78));
                 border: 1px solid rgba(255,255,255,0.9);
@@ -2073,6 +2074,13 @@ def style_app(platform_mode: str) -> None:
                 max-width: 620px;
                 color: #4338ca;
                 font-weight: 700;
+            }}
+            .story-hero-decor {{
+                position: absolute;
+                right: -20px;
+                top: 0;
+                bottom: 0;
+                width: 140px;
             }}
             .story-hero-decor span {{
                 position: absolute;
@@ -2746,14 +2754,14 @@ def render_home_page(selected_profile: Optional[sqlite3.Row], active_category: s
             <div class='story-hero-subtitle'>Read, imagine, and grow with every tale. {escape(welcome_name)} can explore gentle bedtime journeys, playful adventures, and brain-boosting questions in one cozy reading space.</div>
             <div style='margin-top:0.85rem; color:#4338ca; font-weight:800;'>Featured today: {escape(story_of_the_day['title'])} • {escape(story_of_the_day['blurb'])}</div>
             <div class='story-hero-decor'>
-                <span style='top:14px; right:20px;'>⭐</span>
-                <span style='top:74px; right:84px;'>☁️</span>
-                <span style='bottom:18px; right:32px;'>🦊</span>
-                <span style='bottom:44px; right:112px;'>🐻</span>
-                <span style='top:28px; left:74%;'>🎈</span>
-                <span style='bottom:22px; left:58%;'>🪁</span>
-                <span style='top:84px; left:68%;'>🌙</span>
-                <span style='bottom:18px; left:42%;'>📚</span>
+                <span style='top:14px; right:-100px;'>⭐</span>
+                <span style='top:74px; right:-80px;'>☁️</span>
+                <span style='bottom:18px; right:-110px;'>🦊</span>
+                <span style='bottom:44px; right:-60px;'>🐻</span>
+                <span style='top:28px; right:-40px; opacity:0.5;'>🎈</span>
+                <span style='bottom:22px; right:-120px; opacity:0.6;'>🪁</span>
+                <span style='top:84px; right:-90px; opacity:0.5;'>🌙</span>
+                <span style='bottom:18px; right:-30px; opacity:0.6;'>📚</span>
             </div>
         </div>
         """,
