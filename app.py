@@ -2821,7 +2821,6 @@ def render_navigation(story_id: int, slot: str = "main") -> None:
             use_container_width=True,
             disabled=current_page_index == 0,
         ):
-            play_sound(PAGE_TURN_SOUND, "page_turn_click_prev")
             st.session_state.page_turning = True
             st.session_state.page_turn_target = current_page_index - 1
             st.rerun()
@@ -2838,7 +2837,6 @@ def render_navigation(story_id: int, slot: str = "main") -> None:
             use_container_width=True,
             disabled=current_page_index >= total_pages - 1,
         ):
-            play_sound(PAGE_TURN_SOUND, "page_turn_click_next")
             st.session_state.page_turning = True
             st.session_state.page_turn_target = current_page_index + 1
             st.rerun()
@@ -3042,7 +3040,7 @@ def style_app(platform_mode: str) -> None:
                 transform: translateY(-4px) scale(1.01);
                 box-shadow: 0 20px 34px rgba(34, 24, 77, 0.2);
             }}
-            .stars, .clouds, .butterflies, .creatures {{
+            .stars, .butterflies, .creatures {{
                 position: fixed;
                 inset: 0;
                 pointer-events: none;
@@ -3052,22 +3050,9 @@ def style_app(platform_mode: str) -> None:
                 right: 0;
                 bottom: 0;
             }}
-            .clouds span {{
-                position: absolute;
-                width: 120px;
-                height: 36px;
-                border-radius: 999px;
-                background: rgba(255,255,255,.5);
-                filter: blur(1px);
-                animation: drift 24s linear infinite;
-            }}
             @keyframes twinkle {{
                 0%, 100% {{ transform: scale(0.5); opacity: 0.3; }}
                 50% {{ transform: scale(1.4); opacity: 1; }}
-            }}
-            @keyframes drift {{
-                from {{ transform: translateX(-180px); }}
-                to {{ transform: translateX(110vw); }}
             }}
             @keyframes twinkleStar {{
                 0%, 100% {{ transform: translateY(0) scale(0.9); opacity: 0.45; }}
@@ -3377,12 +3362,6 @@ def style_app(platform_mode: str) -> None:
                 box-shadow: 0 12px 24px rgba(96, 165, 250, 0.4) !important;
             }}
         </style>
-
-        <div class="clouds">
-            <span style="top:6%; left:-100px; animation-delay:0s"></span>
-            <span style="top:20%; left:-220px; animation-delay:7s"></span>
-            <span style="top:42%; left:-180px; animation-delay:11s"></span>
-        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -4897,9 +4876,6 @@ def story_player_screen() -> None:
     if st.session_state.page_turning and st.session_state.page_turn_target is not None:
         target_page_index = min(max(0, int(st.session_state.page_turn_target)), total_pages - 1)
         if target_page_index != current_page_index:
-            st.progress((current_page_index + 1) / total_pages, text=f"Turning to page {target_page_index + 1}...")
-            render_page_turn_transition(target_page_index + 1)
-            time.sleep(0.36)
             st.session_state.current_page_index = target_page_index
             if st.session_state.story_pages:
                 target_page = st.session_state.story_pages[target_page_index]
