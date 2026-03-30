@@ -2471,13 +2471,7 @@ def rewrite_story_from_existing(story_id: int, rewrite_style: Optional[str] = No
     rewritten["title"] = f"{source_story.get('title', 'Story')} ({style} Rewrite)"
     rewritten["subtitle"] = f"Fresh {style.lower()} rewrite of a favorite story."
     rewritten = normalize_story_payload(rewritten)
-    image_settings = get_image_provider_settings()
-    rewritten = enrich_story_with_scene_images(
-        rewritten,
-        image_settings.get("provider", "Local Magic Engine"),
-        image_settings.get("openai_key", ""),
-        image_settings.get("image_model", "gpt-image-1"),
-    )
+    # Scene images generated lazily per page — no blocking network calls during rewrite.
 
     new_story_id = save_story(
         profile_id=row["profile_id"],
@@ -4591,31 +4585,7 @@ def story_player_screen() -> None:
             conn.close()
             reset_audio_state_for_new_story(sid)
     story = st.session_state.live_story
-
-    # Ensure all scenes have images once per story load, then persist to DB.
-    warm_key = f"scene_image_warm_done_{sid}"
-    if not st.session_state.get(warm_key, False):
-        scenes = story.get("scenes", []) if isinstance(story, dict) else []
-        missing_images = any(not str(scene.get("image_url", "")).strip() for scene in scenes if isinstance(scene, dict))
-        if missing_images:
-            image_settings = get_image_provider_settings()
-            with st.spinner("Painting all scene illustrations..."):
-                story = enrich_story_with_scene_images(
-                    story,
-                    image_settings.get("provider", "Local Magic Engine"),
-                    image_settings.get("openai_key", ""),
-                    image_settings.get("image_model", "gpt-image-1"),
-                )
-            st.session_state.live_story = story
-            conn = db()
-            conn.execute(
-                "UPDATE stories SET content_json=?, content_text=? WHERE id=?",
-                (json.dumps(story), story.get("full_text", ""), sid),
-            )
-            conn.commit()
-            conn.close()
-        st.session_state[warm_key] = True
-
+    # Images are generated lazily per page in render_story_page() — no blocking bulk call here.
     sync_story_reader(story, reset_index=new_story_loaded or st.session_state.current_story is None)
 
     total_pages = max(1, int(st.session_state.get("total_pages", 0) or 0))
