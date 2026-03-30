@@ -2693,15 +2693,30 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
 
         return generated_url
 
-    if page_type == "image":
-        image_url = ensure_scene_image_url()
-        if image_url:
+    def render_scene_image(image_src: str, alt_caption: str) -> None:
+        src = str(image_src or "").strip()
+        if not src:
+            st.info("Illustration is loading for this page...")
+            return
+
+        # Local cache paths are not directly reachable from browser HTML img tags.
+        # Use st.image for local files; use HTML img for remote URLs to keep browser-side lazy loading.
+        if src.startswith(("http://", "https://")):
             st.markdown(
-                f'<img src="{image_url}" style="width:100%;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,0.18);" alt="Illustration" loading="lazy" />',
+                f'<img src="{src}" style="width:100%;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,0.18);" alt="{escape(alt_caption)}" loading="lazy" />',
                 unsafe_allow_html=True,
             )
-        else:
-            st.info("Illustration is loading for this page...")
+            return
+
+        if Path(src).exists():
+            st.image(src, caption=alt_caption, use_container_width=True)
+            return
+
+        st.info("Illustration is loading for this page...")
+
+    if page_type == "image":
+        image_url = ensure_scene_image_url()
+        render_scene_image(image_url, f"Illustration for {page.get('heading', f'Image {page_index + 1}')}")
         st.markdown(
             f"""
             <div class='story-page-card'>
@@ -2741,13 +2756,7 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
         )
     with image_col:
         side_image_url = ensure_scene_image_url()
-        if side_image_url:
-            st.markdown(
-                f'<img src="{side_image_url}" style="width:100%;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,0.18);" alt="Scene illustration" loading="lazy" />',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.info("Illustration is loading for this page...")
+        render_scene_image(side_image_url, "Scene illustration")
 
 
 def render_navigation(story_id: int, slot: str = "main") -> None:
