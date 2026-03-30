@@ -2589,7 +2589,7 @@ def unique_lines(lines: List[str]) -> List[str]:
 
 
 def split_story_into_pages(story: Dict[str, Any]) -> List[Dict[str, Any]]:
-    # Convert story into alternating TEXT -> IMAGE pages for each scene.
+    # Convert story into text pages per scene (fast, stable reading flow).
     normalized_story = normalize_story_payload(story)
     scenes = normalized_story.get("scenes", []) if isinstance(normalized_story.get("scenes"), list) else []
     if not scenes and normalized_story.get("story"):
@@ -2641,17 +2641,7 @@ def split_story_into_pages(story: Dict[str, Any]) -> List[Dict[str, Any]]:
             "prompt": scene_prompt,
         }
 
-        image_page = {
-            "type": "image",
-            "scene_index": idx,
-            "heading": f"{heading} Illustration",
-            "caption": "",
-            "image_url": scene_image_url,
-            "prompt": scene_prompt,
-        }
-
         pages.append(text_page)
-        pages.append(image_page)
 
     if not pages:
         fallback_text = normalize_reader_line(normalized_story.get("story", "")) or normalize_reader_line(normalized_story.get("full_text", ""))
@@ -4778,7 +4768,7 @@ def create_story_screen() -> None:
         api_key = st.text_input("API key", type="password", disabled=not use_ai)
         model = st.text_input("Model", value="gpt-4o-mini", disabled=not use_ai)
         image_model = st.text_input("Image model", value="gpt-image-1", disabled=not use_ai)
-        make_scene_images = st.toggle("Generate scene images", value=True)
+        make_scene_images = st.toggle("Generate scene images", value=False)
 
     if voice_note is not None:
         t1, t2 = st.columns([1, 2])
