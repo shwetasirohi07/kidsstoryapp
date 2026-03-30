@@ -2115,6 +2115,35 @@ def materialize_remote_image(image_url: str) -> str:
     return url
 
 
+def materialize_remote_image_fast(image_url: str, timeout_seconds: int = 4) -> str:
+    url = str(image_url or "").strip()
+    if not url or not url.lower().startswith(("http://", "https://")):
+        return ""
+
+    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    img_key = hashlib.sha1(f"fast|{url}".encode("utf-8")).hexdigest()
+    local_path = IMAGE_CACHE_DIR / f"remote_fast_{img_key}.png"
+    if local_path.exists() and local_path.stat().st_size > 0:
+        return str(local_path)
+
+    try:
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout_seconds)
+        resp.raise_for_status()
+        content_type = str(resp.headers.get("Content-Type", "")).lower()
+        payload = resp.content or b""
+        if not payload:
+            return ""
+
+        # Accept real image responses only.
+        if "image" not in content_type and not payload.startswith((b"\x89PNG", b"\xff\xd8\xff", b"GIF8", b"RIFF")):
+            return ""
+
+        local_path.write_bytes(payload)
+        return str(local_path)
+    except Exception:
+        return ""
+
+
 def generate_scene_image_url(scene_text: str, provider: str, api_key: str, model: str) -> str:
     def instant_storybook_image_url(prompt_text: str) -> str:
         prompt_for_url = re.sub(r"\s+", " ", str(prompt_text or "Magical storybook scene")).strip()[:300]
@@ -2705,25 +2734,49 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
 
     def render_scene_image(image_src: str, alt_caption: str) -> None:
         src = str(image_src or "").strip()
-        fallback_url = "https://placehold.co/1536x1024/eef2ff/312e81?text=Magical+Scene+Illustration"
+
+        def render_fallback_card(caption_text: str) -> None:
+            st.markdown(
+                f"""
+                <div style='width:100%;border-radius:14px;padding:1.4rem 1.1rem;background:linear-gradient(135deg,#eef2ff,#fdf2f8,#e0f2fe);border:1px solid rgba(99,102,241,0.2);box-shadow:0 4px 18px rgba(0,0,0,0.12);text-align:center;'>
+                    <div style='font-size:2rem;line-height:1;'>📖 ✨ 🦊</div>
+                    <div style='margin-top:0.5rem;font-weight:800;color:#312e81;'>Scene illustration</div>
+                    <div style='margin-top:0.2rem;font-size:0.92rem;color:#4338ca;'>Generating a magical picture...</div>
+                </div>
+                <div style='margin-top:0.4rem;font-size:0.85rem;color:#475569;text-align:center;'>{escape(caption_text)}</div>
+                """,
+                unsafe_allow_html=True,
+            )
+
         if not src:
-            st.image(fallback_url, caption=alt_caption, use_container_width=True)
+            render_fallback_card(alt_caption)
             return
 
         failed_urls = st.session_state.get("failed_image_urls", set())
         if src in failed_urls:
-            st.image(fallback_url, caption=alt_caption, use_container_width=True)
+            render_fallback_card(alt_caption)
             return
 
         # Streamlit handles local and remote image serving more reliably than raw HTML img.
         try:
+            if src.startswith(("http://", "https://")):
+                local_fast = materialize_remote_image_fast(src, timeout_seconds=4)
+                if local_fast and Path(local_fast).exists():
+                    st.image(local_fast, caption=alt_caption, use_container_width=True)
+                    return
+
+                failed_urls.add(src)
+                st.session_state.failed_image_urls = failed_urls
+                render_fallback_card(alt_caption)
+                return
+
             st.image(src, caption=alt_caption, use_container_width=True)
             return
         except Exception:
             # If a URL/path fails once, avoid re-trying it every rerun (keeps player snappy).
             failed_urls.add(src)
             st.session_state.failed_image_urls = failed_urls
-            st.image(fallback_url, caption=alt_caption, use_container_width=True)
+            render_fallback_card(alt_caption)
 
     if page_type == "image":
         image_url = ensure_scene_image_url()
