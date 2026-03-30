@@ -181,6 +181,7 @@ ELEVENLABS_VOICE_MAP = {
     "Magical Fairy Girl": "Xb7hH8MSUJpSbSDYk0k2",
 }
 TTS_CACHE_DIR = Path(".audio_cache")
+IMAGE_CACHE_DIR = Path(".image_cache")
 
 MORAL_LINES = {
     "Kindness": "Kindness turns small moments into big magic.",
@@ -1038,32 +1039,48 @@ def play_sound(sound_url: str, sound_name: str = "sound") -> None:
     """Play a sound effect using HTML5 audio."""
     if not sound_url or sound_url.strip() == "":
         return
-    
+
     audio_html = f"""
-    <audio autoplay>
-        <source src="{sound_url}" type="audio/ogg">
-        <source src="{sound_url}" type="audio/mpeg">
+    <audio autoplay style=\"display:none\">
+        <source src=\"{sound_url}\" type=\"audio/ogg\">
+        <source src=\"{sound_url}\" type=\"audio/mpeg\">
     </audio>
     """
-    components.html(audio_html, height=0)
+    try:
+        st.markdown(audio_html, unsafe_allow_html=True)
+    except Exception:
+        # Sound effects should never break the page flow.
+        return
 
 
 @st.cache_data(show_spinner=False)
 def build_quick_open_chime_wav() -> bytes:
     sample_rate = 22050
-    duration = 0.24
+    duration = 1.2
     total_samples = int(sample_rate * duration)
     frames = bytearray()
+
+    # Original gentle kids jingle (soft xylophone-like character, not copied).
+    notes = [523.25, 587.33, 659.25, 783.99, 659.25, 587.33]  # C5 D5 E5 G5 E5 D5
+    note_step = duration / len(notes)
+
     for n in range(total_samples):
         t = n / sample_rate
+        local_t = t % note_step
+        note_idx = min(len(notes) - 1, int(t / note_step))
+        freq = notes[note_idx]
+
         env = 1.0
-        if t < 0.03:
-            env = t / 0.03
-        elif t > duration - 0.08:
-            env = max(0.0, (duration - t) / 0.08)
-        tone = math.sin(2.0 * math.pi * 740.0 * t)
-        shimmer = 0.38 * math.sin(2.0 * math.pi * 1110.0 * t)
-        sample = int(14500 * env * (0.72 * tone + 0.28 * shimmer))
+        if local_t < 0.04:
+            env = local_t / 0.04
+        elif local_t > note_step - 0.08:
+            env = max(0.0, (note_step - local_t) / 0.08)
+
+        tail = max(0.0, (duration - t) / 0.35)
+        tone = math.sin(2.0 * math.pi * freq * t)
+        warm = 0.14 * math.sin(2.0 * math.pi * (freq * 0.5) * t)
+        sparkle = 0.10 * math.sin(2.0 * math.pi * (freq * 2.0) * t)
+        sample = int(6200 * env * tail * (0.78 * tone + warm + sparkle))
         frames.extend(struct.pack("<h", max(-32767, min(32767, sample))))
 
     wav = io.BytesIO()
@@ -1084,11 +1101,14 @@ def play_sound_bytes(audio_bytes: bytes, mime: str = "audio/wav") -> None:
         return
     b64 = base64.b64encode(audio_bytes).decode("ascii")
     audio_html = f"""
-    <audio autoplay>
-      <source src="data:{mime};base64,{b64}" type="{mime}">
+    <audio autoplay style=\"display:none\">
+        <source src=\"data:{mime};base64,{b64}\" type=\"{mime}\">
     </audio>
     """
-    components.html(audio_html, height=0)
+    try:
+        st.markdown(audio_html, unsafe_allow_html=True)
+    except Exception:
+        return
 
 
 def story_word_count(text: str) -> int:
@@ -1189,6 +1209,19 @@ def get_tts_provider_settings() -> Dict[str, str]:
         "elevenlabs_key": str(get_setting("tts_elevenlabs_key", "") or ""),
         "openai_model": str(get_setting("tts_openai_model", "gpt-4o-mini-tts") or "gpt-4o-mini-tts"),
         "elevenlabs_model": str(get_setting("tts_elevenlabs_model", "eleven_multilingual_v2") or "eleven_multilingual_v2"),
+    }
+
+
+def get_image_provider_settings() -> Dict[str, str]:
+    provider = str(get_setting("image_provider", "Local Magic Engine") or "Local Magic Engine")
+    openai_key = str(get_setting("image_openai_key", "") or "")
+    image_model = str(get_setting("image_model", "gpt-image-1") or "gpt-image-1")
+    if provider != "OpenAI":
+        openai_key = ""
+    return {
+        "provider": provider,
+        "openai_key": openai_key,
+        "image_model": image_model,
     }
 
 
@@ -1336,17 +1369,41 @@ def pick_auto_voice_label(story: Dict[str, Any]) -> str:
     subtitle = str(story.get("subtitle", "")).lower()
     story_text = str(story.get("story", "")).lower()
 
+    male_cues = [" he ", " his ", " him ", " boy ", " little hero", " prince"]
+    female_cues = [" she ", " her ", " girl ", " princess", " fairy"]
+    padded_text = f" {story_text} "
+    male_hint = any(cue in padded_text for cue in male_cues)
+    female_hint = any(cue in padded_text for cue in female_cues)
+
+    if male_hint and not female_hint:
+        if "bedtime" in category.lower() or "sleep" in subtitle:
+            return "Shy Boy"
+        if "adventure" in category.lower():
+            return "Brave Adventure Boy"
+        if "funny" in category.lower():
+            return "Funny Mischievous Boy"
+        return "Playful Boy"
+
+    if female_hint and not male_hint:
+        if "bedtime" in category.lower() or "sleep" in subtitle:
+            return "Calm Bedtime Girl"
+        if "adventure" in category.lower():
+            return "Cheerful Girl"
+        if "funny" in category.lower():
+            return "Cheerful Girl"
+        return "Sweet Girl"
+
     if "bedtime" in category.lower() or "sleep" in subtitle:
-        return "Calm Bedtime Girl"
+        return "Shy Boy"
     if "adventure" in category.lower():
         return "Brave Adventure Boy"
     if "funny" in category.lower():
         return "Funny Mischievous Boy"
     if "magical" in category.lower() or "fairy" in story_text:
-        return "Magical Fairy Girl"
+        return "Playful Boy"
     if "mystery" in story_text or "secret" in story_text:
-        return "Curious Girl"
-    return "Cheerful Girl"
+        return "Brave Adventure Boy"
+    return "Playful Boy"
 
 
 def get_story_voice(story: Dict[str, Any], manual_override: Optional[str] = None) -> Dict[str, Any]:
@@ -1439,18 +1496,19 @@ def reset_audio_state_for_new_story(story_id: int) -> None:
 
 def generate_audio_for_page(story_id: int, page_index: int, page: Dict[str, Any], voice_label: str) -> Dict[str, Any]:
     delivery = infer_scene_delivery(story=st.session_state.get("live_story", {}), page=page)
-    cache_key = f"{story_id}:{page_index}:{voice_label}:{page.get('type', 'text')}:{delivery.get('mood')}:{delivery.get('speed')}"
-    cache = st.session_state.get("audio_cache", {})
-    if cache_key in cache:
-        return cache[cache_key]
-
     if page.get("type") == "image":
         narration = f"Illustration moment: {page.get('caption', 'Take a breath and imagine this scene.')}"
     else:
         narration = str(page.get("text", "")).strip()
-        dialogue = str(page.get("dialogue", "")).strip()
-        if dialogue:
-            narration = f"{narration}  Dialogue: {dialogue}"
+
+    cache = st.session_state.get("audio_cache", {})
+    narration_fingerprint = hashlib.sha1(narration.encode("utf-8")).hexdigest()[:12]
+    cache_key = (
+        f"{story_id}:{page_index}:{voice_label}:{page.get('type', 'text')}:"
+        f"{delivery.get('mood')}:{delivery.get('speed')}:{narration_fingerprint}"
+    )
+    if cache_key in cache:
+        return cache[cache_key]
 
     provider_audio = get_or_generate_provider_audio(narration, voice_label, delivery=delivery)
     audio_payload = {
@@ -2001,36 +2059,142 @@ def transcribe_voice_note_openai(api_key: str, audio_file: Any) -> Optional[str]
     return None
 
 
+def build_lively_scene_prompt(
+    story_title: str,
+    scene_heading: str,
+    scene_text: str,
+    scene_dialogue: str,
+    base_prompt: str,
+) -> str:
+    title = normalize_reader_line(story_title) or "A magical children's story"
+    heading = normalize_reader_line(scene_heading) or "Story scene"
+    narrative = normalize_reader_line(scene_text)
+    dialogue = normalize_reader_line(scene_dialogue)
+    visual_seed = normalize_reader_line(base_prompt)
+
+    details = [part for part in [narrative, dialogue, visual_seed] if part]
+    scene_details = " ".join(details)[:620]
+
+    return (
+        "Premium children's storybook illustration inspired by classic painterly fairytale art, "
+        "golden-hour glow, luminous atmosphere, cinematic wide framing, expressive faces, lively poses, "
+        "clear character storytelling, richly detailed environment, sparkling light reflections, "
+        "soft depth, vibrant but natural color harmony, consistent characters across pages, "
+        "ultra-detailed textures, crisp focus, high pixel clarity, rich contrast, clean edges, "
+        "high visual clarity, no text, no watermark. "
+        f"Story: {title}. Scene: {heading}. Visual description: {scene_details}"
+    )
+
+
+def materialize_remote_image(image_url: str) -> str:
+    url = str(image_url or "").strip()
+    if not url or not url.lower().startswith(("http://", "https://")):
+        return url
+
+    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    img_key = hashlib.sha1(url.encode("utf-8")).hexdigest()
+    local_path = IMAGE_CACHE_DIR / f"remote_{img_key}.png"
+    if local_path.exists() and local_path.stat().st_size > 0:
+        return str(local_path)
+
+    try:
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=35)
+        resp.raise_for_status()
+        if resp.content:
+            local_path.write_bytes(resp.content)
+            return str(local_path)
+    except Exception:
+        return url
+
+    return url
+
+
 def generate_scene_image_url(scene_text: str, provider: str, api_key: str, model: str) -> str:
+    def instant_storybook_image_url(prompt_text: str) -> str:
+        prompt_for_url = re.sub(r"\s+", " ", str(prompt_text or "Magical storybook scene")).strip()[:300]
+        safe_prompt = quote_plus(
+            (
+                "Premium child-friendly painterly storybook illustration, lively characters, dynamic scene action, "
+                "golden-hour cinematic light, richly colored environment, crisp details, clean linework, high clarity, no text. "
+                + prompt_for_url
+            )[:640]
+        )
+        seed = int(hashlib.sha1(str(prompt_text).encode("utf-8")).hexdigest()[:8], 16)
+        return (
+            f"https://image.pollinations.ai/prompt/{safe_prompt}"
+            f"?width=1536&height=1024&seed={seed}&model=flux&enhance=true&nologo=true&safe=true"
+        )
+
     if provider == "OpenAI" and api_key:
         try:
             prompt = (
-                "Child-friendly storybook illustration, vibrant colors, soft lighting, no text. "
+                "Child-friendly storybook illustration, vibrant cinematic colors, soft but crisp lighting, "
+                "high detail, sharp focus, no text. "
                 f"Scene description: {scene_text}"
             )
+            payload: Dict[str, Any] = {
+                "model": model or "gpt-image-1",
+                "prompt": prompt,
+                "size": "1536x1024",
+            }
+            if (model or "gpt-image-1").startswith("gpt-image"):
+                payload["quality"] = "high"
             res = requests.post(
                 "https://api.openai.com/v1/images/generations",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": model or "gpt-image-1", "prompt": prompt, "size": "1024x1024"},
+                json=payload,
                 timeout=45,
             )
             res.raise_for_status()
             body = res.json()
-            if body.get("data") and body["data"][0].get("url"):
-                return body["data"][0]["url"]
+            if body.get("data"):
+                first = body["data"][0] if body["data"] else {}
+                if first.get("url"):
+                    return str(first["url"])
+                b64_image = str(first.get("b64_json", "")).strip()
+                if b64_image:
+                    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                    img_key = hashlib.sha1(f"{model}|{prompt}".encode("utf-8")).hexdigest()
+                    img_path = IMAGE_CACHE_DIR / f"{img_key}.png"
+                    if not img_path.exists():
+                        img_path.write_bytes(base64.b64decode(b64_image))
+                    return str(img_path)
         except Exception:
             pass
 
-    fallback_text = quote_plus(scene_text[:80])
-    return f"https://placehold.co/1024x576/png?text={fallback_text}"
+    return instant_storybook_image_url(scene_text)
+
+
+def resolve_scene_image_asset(scene_text: str, provider: str, api_key: str, model: str) -> str:
+    primary_url = generate_scene_image_url(scene_text=scene_text, provider=provider, api_key=api_key, model=model)
+    primary_asset = materialize_remote_image(primary_url)
+    if primary_asset and Path(primary_asset).exists():
+        return primary_asset
+
+    for retry in range(1, 4):
+        retry_prompt = f"{scene_text} cinematic composition variation {retry}, sharper details, richer colors"
+        retry_url = generate_scene_image_url(scene_text=retry_prompt, provider=provider, api_key=api_key, model=model)
+        retry_asset = materialize_remote_image(retry_url)
+        if retry_asset and Path(retry_asset).exists():
+            return retry_asset
+
+    return primary_asset or primary_url
 
 
 def enrich_story_with_scene_images(story: Dict[str, Any], provider: str, api_key: str, image_model: str) -> Dict[str, Any]:
     scenes = story.get("scenes", [])
+    story_title = str(story.get("title", "Magical Story"))
     for scene in scenes:
+        rich_prompt = build_lively_scene_prompt(
+            story_title=story_title,
+            scene_heading=str(scene.get("heading", "Story scene")),
+            scene_text=str(scene.get("text", "")),
+            scene_dialogue=str(scene.get("dialogue", "")),
+            base_prompt=str(scene.get("image_prompt", "")),
+        )
+        scene["image_prompt"] = rich_prompt
         if not scene.get("image_url"):
-            scene_prompt = scene.get("image_prompt") or scene.get("text", "Magical scene")
-            scene["image_url"] = generate_scene_image_url(scene_prompt, provider, api_key, image_model)
+            scene["image_url"] = resolve_scene_image_asset(rich_prompt, provider, api_key, image_model)
     return story
 
 
@@ -2172,7 +2336,7 @@ def init_state() -> None:
     if "selected_voice" not in st.session_state:
         st.session_state.selected_voice = "Auto (Smart Match)"
     if "auto_selected_voice" not in st.session_state:
-        st.session_state.auto_selected_voice = "Cheerful Girl"
+        st.session_state.auto_selected_voice = "Playful Boy"
     if "audio_cache" not in st.session_state:
         st.session_state.audio_cache = {}
     if "ambience_enabled" not in st.session_state:
@@ -2307,7 +2471,13 @@ def rewrite_story_from_existing(story_id: int, rewrite_style: Optional[str] = No
     rewritten["title"] = f"{source_story.get('title', 'Story')} ({style} Rewrite)"
     rewritten["subtitle"] = f"Fresh {style.lower()} rewrite of a favorite story."
     rewritten = normalize_story_payload(rewritten)
-    rewritten = enrich_story_with_scene_images(rewritten, "Local Magic Engine", "", "")
+    image_settings = get_image_provider_settings()
+    rewritten = enrich_story_with_scene_images(
+        rewritten,
+        image_settings.get("provider", "Local Magic Engine"),
+        image_settings.get("openai_key", ""),
+        image_settings.get("image_model", "gpt-image-1"),
+    )
 
     new_story_id = save_story(
         profile_id=row["profile_id"],
@@ -2388,14 +2558,13 @@ def unique_lines(lines: List[str]) -> List[str]:
 
 
 def split_story_into_pages(story: Dict[str, Any]) -> List[Dict[str, Any]]:
-    # Convert the stored story payload into alternating TEXT -> IMAGE pages.
+    # Convert the stored story payload into one combined TEXT+IMAGE page per scene.
     normalized_story = normalize_story_payload(story)
     scenes = normalized_story.get("scenes", []) if isinstance(normalized_story.get("scenes"), list) else []
     if not scenes and normalized_story.get("story"):
         scenes = paragraphs_to_scenes(str(normalized_story.get("story", "")))
 
     pages: List[Dict[str, Any]] = []
-    seen_page_fingerprints: set[str] = set()
     for idx, raw_scene in enumerate(scenes):
         text_lines = unique_lines(re.split(r"\n+", str(raw_scene.get("text", ""))))
         dialogue_lines = unique_lines(re.split(r"\n+", str(raw_scene.get("dialogue", ""))))
@@ -2413,11 +2582,21 @@ def split_story_into_pages(story: Dict[str, Any]) -> List[Dict[str, Any]]:
             body = dialogue
             dialogue = ""
 
-        fingerprint = re.sub(r"[^a-z0-9]+", " ", f"{heading} {body} {dialogue}".lower()).strip()
-        if fingerprint and fingerprint in seen_page_fingerprints:
-            continue
-        if fingerprint:
-            seen_page_fingerprints.add(fingerprint)
+        scene_prompt = build_lively_scene_prompt(
+            story_title=str(normalized_story.get("title", "Magical Story")),
+            scene_heading=heading,
+            scene_text=body,
+            scene_dialogue=dialogue,
+            base_prompt=str(raw_scene.get("image_prompt", "")),
+        )
+        existing_scene_url = str(raw_scene.get("image_url", "")).strip()
+        # Keep reader navigation fast: do not generate/download all scene images here.
+        # Current page image is generated lazily in render_story_page().
+        scene_image_url = existing_scene_url
+
+        if isinstance(normalized_story.get("scenes"), list) and 0 <= idx < len(normalized_story["scenes"]):
+            normalized_story["scenes"][idx]["image_prompt"] = scene_prompt
+            normalized_story["scenes"][idx]["image_url"] = scene_image_url
 
         text_page = {
             "type": "text",
@@ -2427,19 +2606,11 @@ def split_story_into_pages(story: Dict[str, Any]) -> List[Dict[str, Any]]:
             "dialogue": dialogue,
             "choice_a": str(raw_scene.get("choice_a", "Follow the glowing path")).strip(),
             "choice_b": str(raw_scene.get("choice_b", "Listen beside the old tree")).strip(),
-        }
-        image_page = {
-            "type": "image",
-            "scene_index": idx,
-            "heading": f"{heading} Illustration",
-            "image_url": str(raw_scene.get("image_url", "")).strip(),
-            "prompt": str(raw_scene.get("image_prompt", "Magical storybook illustration")).strip(),
-            "caption": "Imagine this scene and look for tiny details.",
-            "ambience": "Magical Chimes",
+            "image_url": scene_image_url,
+            "prompt": scene_prompt,
         }
 
         pages.append(text_page)
-        pages.append(image_page)
 
     if not pages:
         fallback_text = normalize_reader_line(normalized_story.get("story", "")) or normalize_reader_line(normalized_story.get("full_text", ""))
@@ -2481,11 +2652,49 @@ def sync_story_reader(story: Dict[str, Any], reset_index: bool = False) -> None:
 
 def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -> None:
     page_type = str(page.get("type", "text"))
+    image_settings = get_image_provider_settings()
+    img_provider = image_settings.get("provider", "Local Magic Engine")
+    img_key = image_settings.get("openai_key", "")
+    img_model = image_settings.get("image_model", "gpt-image-1")
+
+    def ensure_scene_image_url() -> str:
+        current_url = str(page.get("image_url", "")).strip()
+        if current_url and "placehold.co" not in current_url:
+            local_or_remote = materialize_remote_image(current_url)
+            page["image_url"] = local_or_remote
+            return local_or_remote
+
+        scene_prompt = str(page.get("prompt", "Magical storybook illustration")).strip() or "Magical storybook illustration"
+        generated_url = resolve_scene_image_asset(
+            scene_text=scene_prompt,
+            provider=img_provider,
+            api_key=img_key,
+            model=img_model,
+        )
+        page["image_url"] = generated_url
+
+        # Keep current in-memory story/pages synchronized so future reruns show the same image.
+        live_story = st.session_state.get("live_story")
+        scene_index = int(page.get("scene_index", -1))
+        if isinstance(live_story, dict) and isinstance(live_story.get("scenes"), list) and 0 <= scene_index < len(live_story["scenes"]):
+            live_story["scenes"][scene_index]["image_url"] = generated_url
+            st.session_state.live_story = live_story
+
+        story_pages = st.session_state.get("story_pages", [])
+        if isinstance(story_pages, list):
+            for p in story_pages:
+                if int(p.get("scene_index", -2)) == scene_index:
+                    p["image_url"] = generated_url
+            st.session_state.story_pages = story_pages
+
+        return generated_url
 
     if page_type == "image":
-        image_url = str(page.get("image_url", "")).strip()
+        image_url = ensure_scene_image_url()
         if image_url:
             st.image(image_url, caption=f"Illustration for {page['heading']}", use_container_width=True)
+        else:
+            st.warning("Illustration is still loading. Please move to next page and come back.")
         st.markdown(
             f"""
             <div class='story-page-card'>
@@ -2496,7 +2705,6 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
                 <div class='story-page-heading'>{escape(str(page.get('heading', f'Image {page_index + 1}')))}</div>
                 <div class='story-page-copy'>
                     <p>{escape(str(page.get('caption', 'Take a breath and imagine this magical moment.')))}</p>
-                    <p><b>Scene prompt:</b> {escape(str(page.get('prompt', 'storybook cinematic scene')))}</p>
                 </div>
             </div>
             """,
@@ -2506,48 +2714,52 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
 
     paragraphs = [part.strip() for part in re.split(r"\n{2,}", str(page.get("text", ""))) if part.strip()]
     paragraph_html = "".join(f"<p>{escape(paragraph)}</p>" for paragraph in paragraphs)
-    dialogue = str(page.get("dialogue", "")).strip()
-    dialogue_html = ""
-    if dialogue:
-        dialogue_html = (
-            "<div class='story-dialogue'>"
-            "<div class='story-dialogue-label'>Story Voice</div>"
-            f"<p>{escape(dialogue)}</p>"
-            "</div>"
+
+    text_col, image_col = st.columns([1.45, 1], gap="large")
+    with text_col:
+        st.markdown(
+            f"""
+            <div class='story-page-card'>
+                <div class='story-page-meta'>
+                    <span class='mini-pill'>Page {page_index + 1} of {total_pages}</span>
+                    <span class='story-page-stars'>✨ ⭐ ✨</span>
+                </div>
+                <div class='story-page-heading'>{escape(str(page.get('heading', f'Page {page_index + 1}')))}</div>
+                <div class='story-page-copy'>
+                    {paragraph_html}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-
-    st.markdown(
-        f"""
-        <div class='story-page-card'>
-            <div class='story-page-meta'>
-                <span class='mini-pill'>Page {page_index + 1} of {total_pages}</span>
-                <span class='story-page-stars'>✨ ⭐ ✨</span>
-            </div>
-            <div class='story-page-heading'>{escape(str(page.get('heading', f'Page {page_index + 1}')))}</div>
-            <div class='story-page-copy'>
-                {paragraph_html}
-            </div>
-            {dialogue_html}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with image_col:
+        side_image_url = ensure_scene_image_url()
+        if side_image_url:
+            st.image(side_image_url, caption="Scene illustration", use_container_width=True)
+        else:
+            st.info("Illustration is loading for this page...")
 
 
-def render_navigation(story_id: int) -> None:
-    total_pages = int(st.session_state.get("total_pages", 0) or 0)
-    if total_pages <= 1:
-        return
+def render_navigation(story_id: int, slot: str = "main") -> None:
+    total_pages = max(1, int(st.session_state.get("total_pages", 0) or 0))
 
     current_page_index = min(
         max(0, st.session_state.get("current_page_index", 0)),
         total_pages - 1,
     )
-    nav1, nav2, nav3 = st.columns([1.1, 1, 1.1])
+    st.markdown(
+        """
+        <div style='margin:0.6rem 0 0.75rem;padding:0.45rem 0.5rem;border-radius:16px;background:linear-gradient(120deg, rgba(147,197,253,0.18), rgba(253,186,216,0.2));box-shadow:0 8px 16px rgba(30,41,59,0.08);'>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    nav1, nav2, nav3 = st.columns([1.2, 0.8, 1.2])
     with nav1:
         if st.button(
-            "⬅️ Previous Page",
-            key=f"reader_prev_{story_id}_{current_page_index}",
+            "⬅ Previous",
+            key=f"reader_prev_{slot}_{story_id}_{current_page_index}",
             use_container_width=True,
             disabled=current_page_index == 0,
         ):
@@ -2557,14 +2769,14 @@ def render_navigation(story_id: int) -> None:
             st.rerun()
     with nav2:
         st.markdown(
-            f"<div class='reader-nav-note'>Page {current_page_index + 1} / {total_pages}</div>",
+            f"<div class='reader-nav-note'>Page {current_page_index + 1} of {total_pages}</div>",
             unsafe_allow_html=True,
         )
     with nav3:
-        next_label = "Next Page ➡️" if current_page_index < total_pages - 1 else "Story Complete ✨"
+        next_label = "Next ➡" if current_page_index < total_pages - 1 else "Story Complete ✨"
         if st.button(
             next_label,
-            key=f"reader_next_{story_id}_{current_page_index}",
+            key=f"reader_next_{slot}_{story_id}_{current_page_index}",
             use_container_width=True,
             disabled=current_page_index >= total_pages - 1,
         ):
@@ -2947,6 +3159,23 @@ def style_app(platform_mode: str) -> None:
                 color: #1f245a;
                 font-size: 1.9rem;
                 margin-bottom: 0.75rem;
+            }}
+            .story-title-cute {{
+                font-family: 'Fredoka', sans-serif;
+                font-size: clamp(2rem, 3.3vw, 3rem);
+                font-weight: 800;
+                line-height: 1.06;
+                letter-spacing: 0.01em;
+                color: #1e1b4b;
+                margin: 0.15rem 0 0.2rem;
+                text-shadow: 0 2px 0 rgba(255,255,255,0.9), 0 8px 18px rgba(79,70,229,0.18);
+            }}
+            .story-subtitle-cute {{
+                font-family: 'Quicksand', sans-serif;
+                font-size: 1.02rem;
+                font-weight: 700;
+                color: #4338ca;
+                margin-bottom: 0.55rem;
             }}
             .story-page-stars {{
                 color: #f59e0b;
@@ -3769,78 +3998,84 @@ def render_vocabulary_boost(story: Dict[str, Any], story_id: int) -> None:
 
 
 def render_listening_section(story: Dict[str, Any], story_id: int, page: Dict[str, Any], page_index: int, total_pages: int) -> None:
-        st.markdown("#### Listen to this story 🎧")
-        auto_voice = pick_auto_voice_label(story)
-        voice_choices = ["Auto (Smart Match)"] + [profile["label"] for profile in VOICE_PROFILES]
-        default_choice = st.session_state.get("selected_voice", "Auto (Smart Match)")
-        if default_choice not in voice_choices:
-                default_choice = "Auto (Smart Match)"
+    st.markdown("#### Listen to this story 🎧")
+    auto_voice = pick_auto_voice_label(story)
+    st.caption("Narrator is auto-matched to the story for natural playback.")
 
-        a1, a2, a3 = st.columns(3)
-        with a1:
-                selected_voice = st.selectbox("Choose your voice 🎙", voice_choices, index=voice_choices.index(default_choice), key=f"voice_select_{story_id}")
-        with a2:
-                narration_speed = st.slider("Narration speed", min_value=0.75, max_value=1.25, value=float(st.session_state.get("narration_speed", 1.0)), step=0.05)
-        with a3:
-                narration_volume = st.slider("Volume", min_value=0.0, max_value=1.0, value=float(st.session_state.get("narration_volume", 0.9)), step=0.05)
+    a1, a2 = st.columns(2)
+    with a1:
+        narration_speed = st.slider(
+            "Narration speed",
+            min_value=0.75,
+            max_value=1.25,
+            value=float(st.session_state.get("narration_speed", 1.0)),
+            step=0.05,
+        )
+    with a2:
+        narration_volume = st.slider(
+            "Volume",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(st.session_state.get("narration_volume", 0.9)),
+            step=0.05,
+        )
 
-        st.session_state.selected_voice = selected_voice
-        st.session_state.auto_selected_voice = auto_voice
-        st.session_state.narration_speed = narration_speed
-        st.session_state.narration_volume = narration_volume
+    selected_voice = "Auto (Smart Match)"
+    st.session_state.selected_voice = selected_voice
+    st.session_state.auto_selected_voice = auto_voice
+    st.session_state.narration_speed = narration_speed
+    st.session_state.narration_volume = narration_volume
 
-        voice_profile = get_story_voice(story, manual_override=selected_voice)
-        voice_profile = dict(voice_profile)
-        voice_profile["rate"] = narration_speed
+    voice_profile = get_story_voice(story, manual_override=selected_voice)
+    voice_profile = dict(voice_profile)
+    voice_profile["rate"] = narration_speed
 
-        audio_payload = generate_audio_for_page(story_id, page_index, page, voice_profile["label"])
-        status = str(audio_payload.get("status", "ready")).title()
-        engine = str(audio_payload.get("engine", "browser_speech"))
-        delivery = audio_payload.get("delivery", {})
-        mood = str(delivery.get("mood", "warm_narration")).replace("_", " ").title()
-        st.caption(f"Page audio status: {status} • Engine: {engine} • Delivery: {mood} • Voice: {voice_profile['label']} (Auto suggestion: {auto_voice})")
+    audio_payload = generate_audio_for_page(story_id, page_index, page, voice_profile["label"])
+    status = str(audio_payload.get("status", "ready")).title()
+    engine = str(audio_payload.get("engine", "browser_speech"))
+    delivery = audio_payload.get("delivery", {})
+    mood = str(delivery.get("mood", "warm_narration")).replace("_", " ").title()
+    st.caption(f"Page audio status: {status} • Engine: {engine} • Delivery: {mood} • Voice: {voice_profile['label']} (Auto suggestion: {auto_voice})")
 
-        audio_path = audio_payload.get("audio_path")
-        if audio_path:
-            try:
-                st.audio(audio_path, format="audio/mp3")
-            except Exception:
-                st.warning("Premium audio playback had an issue. Falling back to browser voice.")
-                audio_path = None
-        if not audio_path and status.lower() == "fallback":
-            st.info("Using browser voice fallback for this page. Configure API keys in Parent Zone to enable premium voices.")
+    audio_path = audio_payload.get("audio_path")
+    if audio_path:
+        try:
+            st.audio(audio_path, format="audio/mp3")
+        except Exception:
+            st.warning("Premium audio playback had an issue. Falling back to browser voice.")
+            audio_path = None
+    if not audio_path:
+        st.warning("Premium narration is unavailable for this page. Add a TTS API key in Parent Zone to enable listening.")
 
-        widget_key = f"{story_id}_{page_index}_{re.sub(r'[^a-z0-9]+', '_', voice_profile['label'].lower())}"
-        voice_profile = dict(voice_profile)
-        speed_factor = float(delivery.get("speed", 1.0))
-        pitch_factor = float(delivery.get("pitch", 1.0))
-        voice_profile["rate"] = max(0.75, min(1.25, float(voice_profile.get("rate", 1.0)) * speed_factor))
-        voice_profile["pitch"] = max(0.7, min(1.6, float(voice_profile.get("pitch", 1.0)) * pitch_factor))
-        auto_play = bool(st.session_state.get("listen_autoplay_once", False))
-        render_speech_widget(audio_payload.get("narration", ""), voice_profile, widget_key, title="Listen to this page", auto_play=auto_play)
-        if auto_play:
-            st.session_state.listen_autoplay_once = False
+    # Browser speech fallback is intentionally disabled to avoid script-runtime errors
+    # and accidental voice mismatches.
+    st.session_state.listen_autoplay_once = False
 
-        b1, b2, b3 = st.columns([1, 1, 2])
-        with b1:
-            if st.button("Previous page ⬅", key=f"audio_prev_{story_id}_{page_index}", disabled=page_index == 0):
-                play_sound(PAGE_TURN_SOUND, "page_turn_audio_prev")
-                st.session_state.page_turning = True
-                st.session_state.page_turn_target = max(0, page_index - 1)
-                st.rerun()
-        with b2:
-            if st.button("Next page ➜", key=f"audio_next_{story_id}_{page_index}", disabled=page_index >= total_pages - 1):
-                play_sound(PAGE_TURN_SOUND, "page_turn_audio_next")
-                st.session_state.page_turning = True
-                st.session_state.page_turn_target = min(total_pages - 1, page_index + 1)
-                st.rerun()
-        with b3:
-            ambience_enabled = st.toggle("Ambience on/off", value=bool(st.session_state.get("ambience_enabled", False)), key=f"ambience_toggle_{story_id}")
-            st.session_state.ambience_enabled = ambience_enabled
-            ambience_default = get_ambience_for_story(story)
-            ambience_choice = st.selectbox("Scene ambience", list(AMBIENCE_TRACKS.keys()), index=list(AMBIENCE_TRACKS.keys()).index(ambience_default) if ambience_default in AMBIENCE_TRACKS else 0, key=f"ambience_choice_{story_id}")
-            if ambience_enabled and AMBIENCE_TRACKS.get(ambience_choice):
-                render_ambience_track(ambience_choice)
+    b1, b2, b3 = st.columns([1, 1, 2])
+    with b1:
+        if st.button("Previous page ⬅", key=f"audio_prev_{story_id}_{page_index}", disabled=page_index == 0):
+            play_sound(PAGE_TURN_SOUND, "page_turn_audio_prev")
+            st.session_state.page_turning = True
+            st.session_state.page_turn_target = max(0, page_index - 1)
+            st.rerun()
+    with b2:
+        if st.button("Next page ➜", key=f"audio_next_{story_id}_{page_index}", disabled=page_index >= total_pages - 1):
+            play_sound(PAGE_TURN_SOUND, "page_turn_audio_next")
+            st.session_state.page_turning = True
+            st.session_state.page_turn_target = min(total_pages - 1, page_index + 1)
+            st.rerun()
+    with b3:
+        ambience_enabled = st.toggle("Ambience on/off", value=bool(st.session_state.get("ambience_enabled", False)), key=f"ambience_toggle_{story_id}")
+        st.session_state.ambience_enabled = ambience_enabled
+        ambience_default = get_ambience_for_story(story)
+        ambience_choice = st.selectbox(
+            "Scene ambience",
+            list(AMBIENCE_TRACKS.keys()),
+            index=list(AMBIENCE_TRACKS.keys()).index(ambience_default) if ambience_default in AMBIENCE_TRACKS else 0,
+            key=f"ambience_choice_{story_id}",
+        )
+        if ambience_enabled and AMBIENCE_TRACKS.get(ambience_choice):
+            render_ambience_track(ambience_choice)
 
 
 def render_quiz_panel(story: Dict[str, Any], story_id: int) -> None:
@@ -4309,6 +4544,28 @@ def story_player_screen() -> None:
     sid = st.session_state.active_story_id
     if sid is None:
         st.warning("Open a story from Library or create a new one.")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🧸 Go to Library", key="player_empty_go_library", use_container_width=True, type="primary"):
+                st.session_state.screen = "🧸 Library"
+                st.rerun()
+        with c2:
+            if st.button("✨ Create New Story", key="player_empty_go_create", use_container_width=True):
+                st.session_state.screen = "✨ Create Story"
+                st.rerun()
+
+        recent_rows = list_stories("recent")
+        if recent_rows:
+            st.markdown("#### Quick Open")
+            options = {f"{r['title']}  •  {r['story_type']}": int(r["id"]) for r in recent_rows[:8]}
+            selected_label = st.selectbox(
+                "Pick a recent story",
+                list(options.keys()),
+                key="player_empty_recent_select",
+            )
+            if st.button("📖 Open Selected Story", key="player_empty_open_recent", use_container_width=True):
+                open_story_in_reader(options[selected_label])
+                st.rerun()
         return
 
     row = get_story(sid)
@@ -4334,6 +4591,31 @@ def story_player_screen() -> None:
             conn.close()
             reset_audio_state_for_new_story(sid)
     story = st.session_state.live_story
+
+    # Ensure all scenes have images once per story load, then persist to DB.
+    warm_key = f"scene_image_warm_done_{sid}"
+    if not st.session_state.get(warm_key, False):
+        scenes = story.get("scenes", []) if isinstance(story, dict) else []
+        missing_images = any(not str(scene.get("image_url", "")).strip() for scene in scenes if isinstance(scene, dict))
+        if missing_images:
+            image_settings = get_image_provider_settings()
+            with st.spinner("Painting all scene illustrations..."):
+                story = enrich_story_with_scene_images(
+                    story,
+                    image_settings.get("provider", "Local Magic Engine"),
+                    image_settings.get("openai_key", ""),
+                    image_settings.get("image_model", "gpt-image-1"),
+                )
+            st.session_state.live_story = story
+            conn = db()
+            conn.execute(
+                "UPDATE stories SET content_json=?, content_text=? WHERE id=?",
+                (json.dumps(story), story.get("full_text", ""), sid),
+            )
+            conn.commit()
+            conn.close()
+        st.session_state[warm_key] = True
+
     sync_story_reader(story, reset_index=new_story_loaded or st.session_state.current_story is None)
 
     total_pages = max(1, int(st.session_state.get("total_pages", 0) or 0))
@@ -4355,8 +4637,13 @@ def story_player_screen() -> None:
         st.session_state.page_turning = False
         st.session_state.page_turn_target = None
 
-    st.markdown(f"## {story['title']}")
-    st.caption(story.get("subtitle", ""))
+    st.markdown(
+        f"""
+        <div class='story-title-cute'>{escape(str(story.get('title', 'Magical Story')))}</div>
+        <div class='story-subtitle-cute'>{escape(str(story.get('subtitle', '')))}</div>
+        """,
+        unsafe_allow_html=True,
+    )
     if st.session_state.get("current_story_id") != sid:
         st.session_state.current_story_id = sid
     if st.session_state.get("current_mode") not in ["read", "listen", "rewrite"]:
@@ -4385,8 +4672,9 @@ def story_player_screen() -> None:
     current_scene_index = int(current_page.get("scene_index", current_page_index))
 
     st.progress((current_page_index + 1) / total_pages, text=f"Page {current_page_index + 1} of {total_pages}")
+    render_navigation(sid, slot="top")
     render_story_page(current_page, current_page_index, total_pages)
-    render_navigation(sid)
+    render_navigation(sid, slot="bottom")
 
     active_mode = st.session_state.get("current_mode", "read")
     if active_mode == "listen":
@@ -4522,6 +4810,23 @@ def parent_zone_screen() -> None:
         tts_elevenlabs_key = st.text_input("ElevenLabs API key", type="password", value=get_setting("tts_elevenlabs_key", ""))
         st.caption("These keys are used for narration audio generation and cached for faster replay.")
 
+    st.markdown("#### Premium Scene Images")
+    i1, i2 = st.columns(2)
+    with i1:
+        image_provider = st.selectbox(
+            "Image Provider",
+            ["Local Magic Engine", "OpenAI"],
+            index=["Local Magic Engine", "OpenAI"].index(
+                get_setting("image_provider", "Local Magic Engine")
+                if get_setting("image_provider", "Local Magic Engine") in ["Local Magic Engine", "OpenAI"]
+                else "Local Magic Engine"
+            ),
+        )
+        image_model = st.text_input("Image Model", value=get_setting("image_model", "gpt-image-1"))
+    with i2:
+        image_openai_key = st.text_input("OpenAI Image API key", type="password", value=get_setting("image_openai_key", ""))
+        st.caption("Set this once to generate sharper, richer scene images for every page.")
+
     if st.button("Save Parent Settings"):
         set_setting("parent_email", parent_email)
         set_setting("max_scenes", str(max_scenes))
@@ -4531,6 +4836,9 @@ def parent_zone_screen() -> None:
         set_setting("tts_elevenlabs_key", tts_elevenlabs_key.strip())
         set_setting("tts_openai_model", tts_openai_model.strip() or "gpt-4o-mini-tts")
         set_setting("tts_elevenlabs_model", tts_elevenlabs_model.strip() or "eleven_multilingual_v2")
+        set_setting("image_provider", image_provider)
+        set_setting("image_openai_key", image_openai_key.strip())
+        set_setting("image_model", image_model.strip() or "gpt-image-1")
         st.success("Parent settings saved.")
 
     st.markdown("#### Data Tools")
