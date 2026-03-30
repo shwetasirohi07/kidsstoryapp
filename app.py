@@ -3388,15 +3388,286 @@ def render_header(platform_mode: str) -> None:
         st.markdown(hero_html, unsafe_allow_html=True)
         return
 
-    hero_html = f"""
-    <div class='panel' style='margin-bottom:0.6rem;'>
-        <div class='mini-pill'>MAGICAL STORY UNIVERSE</div>
-        <div class='hero-title'>{APP_NAME}</div>
-        <div style='font-weight:700;opacity:0.9;'>{APP_TAGLINE}</div>
-        <div style='margin-top:6px;font-size:1.2rem;'>🐦 🐰 🦊 🐻 ⭐ ✨</div>
-    </div>
-    """
-    st.markdown(hero_html, unsafe_allow_html=True)
+        hero_html = """
+        <style>
+            .wl-hero-wrap {
+                position: relative;
+                overflow: hidden;
+                border-radius: 30px;
+                padding: 2rem 2.4rem 1.9rem;
+                margin-bottom: 1rem;
+                background: linear-gradient(135deg,
+                    rgba(255,255,255,0.96) 0%,
+                    rgba(219,234,254,0.92) 30%,
+                    rgba(237,233,254,0.94) 62%,
+                    rgba(254,243,199,0.84) 100%
+                );
+                border: 1px solid rgba(255,255,255,0.96);
+                box-shadow:
+                    0 10px 40px rgba(79,70,229,0.16),
+                    0 2px 10px rgba(0,0,0,0.06),
+                    inset 0 1px 0 rgba(255,255,255,0.95);
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 1.5rem;
+                animation: wlHeroIn 0.75s cubic-bezier(0.22,1,0.36,1) both;
+            }
+            @keyframes wlHeroIn {
+                from { opacity:0; transform:translateY(22px) scale(0.98); }
+                to   { opacity:1; transform:translateY(0) scale(1); }
+            }
+            .wl-hero-wrap::before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background:
+                    radial-gradient(ellipse 65% 55% at 15% 50%, rgba(167,139,250,0.22), transparent),
+                    radial-gradient(ellipse 55% 65% at 88% 25%, rgba(251,191,36,0.18), transparent),
+                    radial-gradient(ellipse 45% 75% at 58% 85%, rgba(96,165,250,0.16), transparent);
+                pointer-events: none;
+                border-radius: 30px;
+            }
+            .wl-sparks {
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+                overflow: hidden;
+                border-radius: 30px;
+            }
+            .wl-spark {
+                position: absolute;
+                border-radius: 50%;
+                animation: wlSparkRise linear infinite;
+            }
+            @keyframes wlSparkRise {
+                0%   { transform:translateY(0) scale(0.6); opacity:0; }
+                12%  { opacity:1; }
+                88%  { opacity:0.75; }
+                100% { transform:translateY(-90px) scale(1.4); opacity:0; }
+            }
+            .wl-hero-left { position:relative; z-index:2; flex:1; min-width:0; }
+            .wl-glowing-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 0.32rem 1.05rem 0.32rem 0.62rem;
+                border-radius: 999px;
+                background: linear-gradient(120deg, rgba(139,92,246,0.16), rgba(59,130,246,0.12));
+                border: 1px solid rgba(139,92,246,0.42);
+                color: #4c1d95;
+                font-family: 'Nunito', sans-serif;
+                font-size: 0.74rem;
+                font-weight: 800;
+                letter-spacing: 0.09em;
+                margin-bottom: 0.95rem;
+                box-shadow: 0 0 16px rgba(139,92,246,0.2), inset 0 1px 0 rgba(255,255,255,0.7);
+                animation: wlBadgePulse 3.2s ease-in-out infinite;
+                cursor: default;
+                transition: box-shadow 0.3s ease;
+            }
+            .wl-glowing-badge:hover {
+                box-shadow: 0 0 28px rgba(139,92,246,0.42), inset 0 1px 0 rgba(255,255,255,0.7);
+            }
+            .wl-badge-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                flex-shrink: 0;
+                background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+                box-shadow: 0 0 8px rgba(139,92,246,0.75);
+                animation: wlDotPop 2.2s ease-in-out infinite;
+            }
+            @keyframes wlBadgePulse {
+                0%,100% { box-shadow: 0 0 16px rgba(139,92,246,0.2), inset 0 1px 0 rgba(255,255,255,0.7); }
+                50%      { box-shadow: 0 0 30px rgba(139,92,246,0.4), inset 0 1px 0 rgba(255,255,255,0.7); }
+            }
+            @keyframes wlDotPop {
+                0%,100% { transform:scale(1); opacity:1; }
+                50%      { transform:scale(1.45); opacity:0.85; }
+            }
+            .wl-main-title {
+                font-family: 'Fredoka', sans-serif;
+                font-size: clamp(2.6rem, 4.8vw, 4rem);
+                font-weight: 700;
+                line-height: 1.01;
+                letter-spacing: 0.01em;
+                margin: 0 0 0.48rem;
+                background: linear-gradient(135deg, #3730a3 0%, #7c3aed 36%, #2563eb 66%, #0891b2 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                filter: drop-shadow(0 3px 12px rgba(79,70,229,0.28));
+                animation: wlTitleIn 0.75s 0.12s cubic-bezier(0.22,1,0.36,1) both;
+                transition: filter 0.3s ease;
+            }
+            .wl-main-title:hover {
+                filter: drop-shadow(0 4px 20px rgba(79,70,229,0.48));
+            }
+            @keyframes wlTitleIn {
+                from { opacity:0; transform:translateX(-22px); }
+                to   { opacity:1; transform:translateX(0); }
+            }
+            .wl-sub-line {
+                font-family: 'Nunito', sans-serif;
+                font-size: 1.1rem;
+                font-weight: 700;
+                color: #4338ca;
+                margin: 0 0 1.05rem;
+                animation: wlSubIn 0.7s 0.28s ease both;
+            }
+            .wl-hl-magic {
+                background: linear-gradient(120deg, #7c3aed, #d946ef);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                font-weight: 800;
+            }
+            .wl-hl-bright {
+                background: linear-gradient(120deg, #f59e0b, #f97316);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                font-weight: 800;
+            }
+            @keyframes wlSubIn {
+                from { opacity:0; transform:translateY(9px); }
+                to   { opacity:1; transform:translateY(0); }
+            }
+            .wl-creature-strip {
+                display: flex;
+                gap: 0.65rem;
+                align-items: center;
+                flex-wrap: wrap;
+                animation: wlCreaturesIn 0.65s 0.44s ease both;
+            }
+            .wl-c {
+                font-size: 1.65rem;
+                display: inline-block;
+                filter: drop-shadow(0 2px 5px rgba(0,0,0,0.13));
+                animation: wlCFloat ease-in-out infinite;
+                transition: transform 0.2s ease;
+            }
+            .wl-c:hover { transform: translateY(-5px) scale(1.15) !important; }
+            @keyframes wlCreaturesIn {
+                from { opacity:0; transform:translateY(12px); }
+                to   { opacity:1; transform:translateY(0); }
+            }
+            @keyframes wlCFloat {
+                0%,100% { transform:translateY(0) rotate(0deg); }
+                50%      { transform:translateY(-8px) rotate(4deg); }
+            }
+            .wl-hero-right {
+                position: relative;
+                z-index: 2;
+                width: 155px;
+                min-width: 115px;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                animation: wlRightIn 0.85s 0.18s cubic-bezier(0.22,1,0.36,1) both;
+            }
+            @keyframes wlRightIn {
+                from { opacity:0; transform:translateX(25px) scale(0.93); }
+                to   { opacity:1; transform:translateX(0) scale(1); }
+            }
+            .wl-book-box { position:relative; width:115px; height:115px; }
+            .wl-glow-ring {
+                position: absolute;
+                inset: -24px;
+                border-radius: 50%;
+                background: radial-gradient(circle, rgba(251,191,36,0.42), rgba(167,139,250,0.24), transparent 68%);
+                animation: wlGlowPulse 3.8s ease-in-out infinite;
+            }
+            @keyframes wlGlowPulse {
+                0%,100% { transform:scale(1); opacity:0.78; }
+                50%      { transform:scale(1.2); opacity:1; }
+            }
+            .wl-book-icon {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%,-50%);
+                font-size: 4rem;
+                filter: drop-shadow(0 5px 16px rgba(251,191,36,0.5));
+                animation: wlBookBob 4.2s ease-in-out infinite;
+            }
+            @keyframes wlBookBob {
+                0%,100% { transform:translate(-50%,-50%) rotate(-4deg) scale(1); }
+                50%      { transform:translate(-50%,calc(-50% - 10px)) rotate(4deg) scale(1.05); }
+            }
+            .wl-orbit {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                font-size: 1.15rem;
+                transform-origin: 0 0;
+                animation: wlOrbit linear infinite;
+            }
+            @keyframes wlOrbit {
+                0%   { transform:rotate(0deg) translateX(54px) rotate(0deg); }
+                100% { transform:rotate(360deg) translateX(54px) rotate(-360deg); }
+            }
+            .wl-float-deco {
+                position: absolute;
+                animation: wlBookBob ease-in-out infinite;
+            }
+            @media (max-width:640px) {
+                .wl-hero-wrap { flex-direction:column; padding:1.6rem 1.3rem; }
+                .wl-hero-right { width:100%; min-width:auto; }
+                .wl-book-box { width:78px; height:78px; }
+                .wl-book-icon { font-size:2.7rem; }
+                .wl-main-title { font-size:2.3rem; }
+            }
+        </style>
+
+        <div class="wl-hero-wrap">
+            <div class="wl-sparks">
+                <div class="wl-spark" style="left:5%;top:84%;width:7px;height:7px;background:#8b5cf6;animation-duration:3.2s;animation-delay:0s;"></div>
+                <div class="wl-spark" style="left:18%;top:81%;width:5px;height:5px;background:#fbbf24;animation-duration:2.9s;animation-delay:0.7s;"></div>
+                <div class="wl-spark" style="left:33%;top:88%;width:6px;height:6px;background:#60a5fa;animation-duration:3.6s;animation-delay:1.3s;"></div>
+                <div class="wl-spark" style="left:50%;top:79%;width:5px;height:5px;background:#f472b6;animation-duration:2.6s;animation-delay:0.4s;"></div>
+                <div class="wl-spark" style="left:66%;top:85%;width:7px;height:7px;background:#34d399;animation-duration:3.1s;animation-delay:1.0s;"></div>
+                <div class="wl-spark" style="left:80%;top:81%;width:4px;height:4px;background:#fbbf24;animation-duration:2.8s;animation-delay:1.7s;"></div>
+                <div class="wl-spark" style="left:11%;top:74%;width:4px;height:4px;background:#c084fc;animation-duration:3.4s;animation-delay:2.0s;"></div>
+                <div class="wl-spark" style="left:43%;top:75%;width:6px;height:6px;background:#38bdf8;animation-duration:3.0s;animation-delay:0.5s;"></div>
+                <div class="wl-spark" style="left:58%;top:90%;width:5px;height:5px;background:#fb923c;animation-duration:2.7s;animation-delay:1.4s;"></div>
+                <div class="wl-spark" style="left:74%;top:77%;width:6px;height:6px;background:#a78bfa;animation-duration:3.3s;animation-delay:0.2s;"></div>
+            </div>
+
+            <div class="wl-hero-left">
+                <div class="wl-glowing-badge">
+                    <span class="wl-badge-dot"></span>
+                    ✨ MAGICAL STORY UNIVERSE
+                </div>
+                <div class="wl-main-title">Wonderloom</div>
+                <div class="wl-sub-line">
+                    <span class="wl-hl-magic">Magical</span> stories. <span class="wl-hl-bright">Bright</span> young minds.
+                </div>
+                <div class="wl-creature-strip">
+                    <span class="wl-c" style="animation-duration:3.2s;animation-delay:0s;">🐦</span>
+                    <span class="wl-c" style="animation-duration:2.9s;animation-delay:0.42s;">🐰</span>
+                    <span class="wl-c" style="animation-duration:3.5s;animation-delay:0.84s;">🦊</span>
+                    <span class="wl-c" style="animation-duration:3.0s;animation-delay:0.21s;">🐻</span>
+                    <span class="wl-c" style="font-size:1.3rem;animation-duration:2.5s;animation-delay:1.1s;">⭐</span>
+                    <span class="wl-c" style="font-size:1.2rem;animation-duration:2.2s;animation-delay:0.63s;">✨</span>
+                </div>
+            </div>
+
+            <div class="wl-hero-right">
+                <div class="wl-book-box">
+                    <div class="wl-glow-ring"></div>
+                    <div class="wl-book-icon">📖</div>
+                    <span class="wl-orbit" style="animation-duration:7.5s;animation-delay:0s;">⭐</span>
+                    <span class="wl-orbit" style="animation-duration:7.5s;animation-delay:3.75s;">✨</span>
+                    <span class="wl-float-deco" style="top:-12px;right:-12px;font-size:1.45rem;animation-duration:3.3s;animation-delay:0.5s;">🌟</span>
+                    <span class="wl-float-deco" style="bottom:-9px;left:-11px;font-size:1.25rem;animation-duration:3.9s;animation-delay:1.3s;">🦋</span>
+                </div>
+            </div>
+        </div>
+        """
+        st.markdown(hero_html, unsafe_allow_html=True)
 
 
 def screen_nav() -> None:
