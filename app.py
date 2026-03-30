@@ -2713,7 +2713,7 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
             if local_path.exists() and local_path.stat().st_size > 0:
                 return str(local_path)
             # Quick attempt to materialize; if this fails, continue to fresh generation.
-            fast_local = materialize_remote_image_fast(current_val, timeout_seconds=4)
+            fast_local = materialize_remote_image_fast(current_val, timeout_seconds=6)
             if fast_local and Path(fast_local).exists():
                 page["image_url"] = fast_local
                 return fast_local
@@ -2727,6 +2727,32 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
                 api_key=img_key,
                 model=img_model,
             )
+
+        # Only return a verifiable display asset (local path preferred).
+        if generated_url and str(generated_url).startswith(("http://", "https://")):
+            verified_local = materialize_remote_image_fast(str(generated_url), timeout_seconds=8)
+            if verified_local and Path(verified_local).exists():
+                generated_url = verified_local
+            else:
+                retry_prompt = f"{scene_prompt} alternate composition, clean subject, cinematic lighting"
+                with st.spinner("Finalizing illustration..."):
+                    retry_url = resolve_scene_image_asset(
+                        scene_text=retry_prompt,
+                        provider=img_provider,
+                        api_key=img_key,
+                        model=img_model,
+                    )
+                if retry_url and str(retry_url).startswith(("http://", "https://")):
+                    retry_local = materialize_remote_image_fast(str(retry_url), timeout_seconds=8)
+                    generated_url = retry_local if retry_local and Path(retry_local).exists() else ""
+                elif retry_url and Path(str(retry_url)).exists():
+                    generated_url = str(retry_url)
+                else:
+                    generated_url = ""
+
+        if generated_url and not str(generated_url).startswith(("http://", "https://")) and not Path(str(generated_url)).exists():
+            generated_url = ""
+
         page["image_url"] = generated_url
 
         # Keep in-memory story/pages in sync for future reruns
@@ -4931,7 +4957,6 @@ def story_player_screen() -> None:
     st.progress((current_page_index + 1) / total_pages, text=f"Page {current_page_index + 1} of {total_pages}")
     render_navigation(sid, slot="top")
     render_story_page(current_page, current_page_index, total_pages)
-    render_navigation(sid, slot="bottom")
 
     active_mode = st.session_state.get("current_mode", "read")
     if active_mode == "listen":
