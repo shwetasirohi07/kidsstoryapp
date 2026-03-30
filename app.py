@@ -369,13 +369,19 @@ def set_setting(key: str, value: str) -> None:
     )
     conn.commit()
     conn.close()
+    get_all_settings_cached.clear()
 
 
 def get_setting(key: str, default: str = "") -> str:
+    return get_all_settings_cached().get(key, default)
+
+
+@st.cache_data(show_spinner=False)
+def get_all_settings_cached() -> Dict[str, str]:
     conn = db()
-    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    rows = conn.execute("SELECT key, value FROM settings").fetchall()
     conn.close()
-    return row["value"] if row else default
+    return {str(row["key"]): str(row["value"]) for row in rows}
 
 
 def difficulty_label_from_age(age_group: str) -> str:
@@ -2351,6 +2357,8 @@ def init_state() -> None:
         st.session_state.story_open_tune_story_id = None
     if "current_story_id" not in st.session_state:
         st.session_state.current_story_id = None
+    if "last_marked_read_story_id" not in st.session_state:
+        st.session_state.last_marked_read_story_id = None
     if "current_mode" not in st.session_state:
         st.session_state.current_mode = "read"
     if "rewritten_story_flag" not in st.session_state:
@@ -2699,20 +2707,12 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
             st.info("Illustration is loading for this page...")
             return
 
-        # Local cache paths are not directly reachable from browser HTML img tags.
-        # Use st.image for local files; use HTML img for remote URLs to keep browser-side lazy loading.
-        if src.startswith(("http://", "https://")):
-            st.markdown(
-                f'<img src="{src}" style="width:100%;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,0.18);" alt="{escape(alt_caption)}" loading="lazy" />',
-                unsafe_allow_html=True,
-            )
-            return
-
-        if Path(src).exists():
+        # Streamlit handles local and remote image serving more reliably than raw HTML img.
+        try:
             st.image(src, caption=alt_caption, use_container_width=True)
             return
-
-        st.info("Illustration is loading for this page...")
+        except Exception:
+            st.info("Illustration is loading for this page...")
 
     if page_type == "image":
         image_url = ensure_scene_image_url()
@@ -4863,7 +4863,9 @@ def story_player_screen() -> None:
         st.error("Story not found.")
         return
 
-    mark_read(sid)
+    if st.session_state.get("last_marked_read_story_id") != sid:
+        mark_read(sid)
+        st.session_state.last_marked_read_story_id = sid
     new_story_loaded = False
     if st.session_state.live_story_id != sid or st.session_state.live_story is None:
         loaded_story = json.loads(row["content_json"])
@@ -4928,7 +4930,7 @@ def story_player_screen() -> None:
         st.session_state.rewritten_story_flag = False
 
     if st.session_state.get("story_open_tune_story_id") != sid:
-        play_sound_bytes(build_quick_open_chime_wav(), mime="audio/wav")
+        # Keep open transitions quiet by default to avoid repetitive/annoying sound.
         st.session_state.story_open_tune_story_id = sid
 
     total_pages = max(1, int(st.session_state.get("total_pages", 0) or 0))
