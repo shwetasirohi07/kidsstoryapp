@@ -2652,14 +2652,24 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
     img_model = image_settings.get("image_model", "gpt-image-1")
 
     def ensure_scene_image_url() -> str:
-        current_url = str(page.get("image_url", "")).strip()
-        if current_url and "placehold.co" not in current_url:
-            local_or_remote = materialize_remote_image(current_url)
-            page["image_url"] = local_or_remote
-            return local_or_remote
+        current_val = str(page.get("image_url", "")).strip()
 
+        # Already a local cached file — use it directly
+        if current_val and not current_val.startswith(("http://", "https://")):
+            if Path(current_val).exists():
+                return current_val
+
+        # Already a URL — check local cache first, then return URL for browser to fetch
+        if current_val and current_val.startswith(("http://", "https://")) and "placehold.co" not in current_val:
+            cache_key = hashlib.sha1(current_val.encode("utf-8")).hexdigest()
+            local_path = IMAGE_CACHE_DIR / f"remote_{cache_key}.png"
+            if local_path.exists() and local_path.stat().st_size > 0:
+                return str(local_path)
+            return current_val  # Browser fetches directly — no server-side blocking
+
+        # No URL yet — build one instantly (pure string, zero HTTP calls)
         scene_prompt = str(page.get("prompt", "Magical storybook illustration")).strip() or "Magical storybook illustration"
-        generated_url = resolve_scene_image_asset(
+        generated_url = generate_scene_image_url(
             scene_text=scene_prompt,
             provider=img_provider,
             api_key=img_key,
@@ -2667,7 +2677,7 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
         )
         page["image_url"] = generated_url
 
-        # Keep current in-memory story/pages synchronized so future reruns show the same image.
+        # Keep in-memory story/pages in sync for future reruns
         live_story = st.session_state.get("live_story")
         scene_index = int(page.get("scene_index", -1))
         if isinstance(live_story, dict) and isinstance(live_story.get("scenes"), list) and 0 <= scene_index < len(live_story["scenes"]):
@@ -2686,9 +2696,12 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
     if page_type == "image":
         image_url = ensure_scene_image_url()
         if image_url:
-            st.image(image_url, caption=f"Illustration for {page['heading']}", use_container_width=True)
+            st.markdown(
+                f'<img src="{image_url}" style="width:100%;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,0.18);" alt="Illustration" loading="lazy" />',
+                unsafe_allow_html=True,
+            )
         else:
-            st.warning("Illustration is still loading. Please move to next page and come back.")
+            st.info("Illustration is loading for this page...")
         st.markdown(
             f"""
             <div class='story-page-card'>
@@ -2729,7 +2742,10 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
     with image_col:
         side_image_url = ensure_scene_image_url()
         if side_image_url:
-            st.image(side_image_url, caption="Scene illustration", use_container_width=True)
+            st.markdown(
+                f'<img src="{side_image_url}" style="width:100%;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,0.18);" alt="Scene illustration" loading="lazy" />',
+                unsafe_allow_html=True,
+            )
         else:
             st.info("Illustration is loading for this page...")
 
