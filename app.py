@@ -2374,8 +2374,6 @@ def init_state() -> None:
         st.session_state.auto_selected_voice = "Playful Boy"
     if "audio_cache" not in st.session_state:
         st.session_state.audio_cache = {}
-    if "failed_image_urls" not in st.session_state:
-        st.session_state.failed_image_urls = set()
     if "ambience_enabled" not in st.session_state:
         st.session_state.ambience_enabled = False
     if "playback_mode" not in st.session_state:
@@ -2591,7 +2589,7 @@ def unique_lines(lines: List[str]) -> List[str]:
 
 
 def split_story_into_pages(story: Dict[str, Any]) -> List[Dict[str, Any]]:
-    # Convert the stored story payload into one combined TEXT+IMAGE page per scene.
+    # Convert story into alternating TEXT -> IMAGE pages for each scene.
     normalized_story = normalize_story_payload(story)
     scenes = normalized_story.get("scenes", []) if isinstance(normalized_story.get("scenes"), list) else []
     if not scenes and normalized_story.get("story"):
@@ -2643,7 +2641,17 @@ def split_story_into_pages(story: Dict[str, Any]) -> List[Dict[str, Any]]:
             "prompt": scene_prompt,
         }
 
+        image_page = {
+            "type": "image",
+            "scene_index": idx,
+            "heading": f"{heading} Illustration",
+            "caption": "",
+            "image_url": scene_image_url,
+            "prompt": scene_prompt,
+        }
+
         pages.append(text_page)
+        pages.append(image_page)
 
     if not pages:
         fallback_text = normalize_reader_line(normalized_story.get("story", "")) or normalize_reader_line(normalized_story.get("full_text", ""))
@@ -2698,22 +2706,27 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
             if Path(current_val).exists():
                 return current_val
 
-        # Already a URL — check local cache first, then return URL for browser to fetch
+        # Already a URL — prefer cached local file if available.
         if current_val and current_val.startswith(("http://", "https://")) and "placehold.co" not in current_val:
             cache_key = hashlib.sha1(current_val.encode("utf-8")).hexdigest()
             local_path = IMAGE_CACHE_DIR / f"remote_{cache_key}.png"
             if local_path.exists() and local_path.stat().st_size > 0:
                 return str(local_path)
-            return current_val  # Browser fetches directly — no server-side blocking
+            # Quick attempt to materialize; if this fails, continue to fresh generation.
+            fast_local = materialize_remote_image_fast(current_val, timeout_seconds=4)
+            if fast_local and Path(fast_local).exists():
+                page["image_url"] = fast_local
+                return fast_local
 
-        # No URL yet — build one instantly (pure string, zero HTTP calls)
+        # Generate and materialize a real illustration with minimal spinner UI.
         scene_prompt = str(page.get("prompt", "Magical storybook illustration")).strip() or "Magical storybook illustration"
-        generated_url = generate_scene_image_url(
-            scene_text=scene_prompt,
-            provider=img_provider,
-            api_key=img_key,
-            model=img_model,
-        )
+        with st.spinner("Generating illustration..."):
+            generated_url = resolve_scene_image_asset(
+                scene_text=scene_prompt,
+                provider=img_provider,
+                api_key=img_key,
+                model=img_model,
+            )
         page["image_url"] = generated_url
 
         # Keep in-memory story/pages in sync for future reruns
@@ -2734,93 +2747,39 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
 
     def render_scene_image(image_src: str, alt_caption: str) -> None:
         src = str(image_src or "").strip()
-
-        def render_fallback_card(caption_text: str) -> None:
-            st.markdown(
-                f"""
-                <div style='width:100%;border-radius:14px;padding:1.4rem 1.1rem;background:linear-gradient(135deg,#eef2ff,#fdf2f8,#e0f2fe);border:1px solid rgba(99,102,241,0.2);box-shadow:0 4px 18px rgba(0,0,0,0.12);text-align:center;'>
-                    <div style='font-size:2rem;line-height:1;'>📖 ✨ 🦊</div>
-                    <div style='margin-top:0.5rem;font-weight:800;color:#312e81;'>Scene illustration</div>
-                    <div style='margin-top:0.2rem;font-size:0.92rem;color:#4338ca;'>Generating a magical picture...</div>
-                </div>
-                <div style='margin-top:0.4rem;font-size:0.85rem;color:#475569;text-align:center;'>{escape(caption_text)}</div>
-                """,
-                unsafe_allow_html=True,
-            )
-
         if not src:
-            render_fallback_card(alt_caption)
+            st.warning("Could not generate illustration for this scene.")
             return
 
-        failed_urls = st.session_state.get("failed_image_urls", set())
-        if src in failed_urls:
-            render_fallback_card(alt_caption)
-            return
-
-        # Streamlit handles local and remote image serving more reliably than raw HTML img.
         try:
-            if src.startswith(("http://", "https://")):
-                local_fast = materialize_remote_image_fast(src, timeout_seconds=4)
-                if local_fast and Path(local_fast).exists():
-                    st.image(local_fast, caption=alt_caption, use_container_width=True)
-                    return
-
-                failed_urls.add(src)
-                st.session_state.failed_image_urls = failed_urls
-                render_fallback_card(alt_caption)
-                return
-
-            st.image(src, caption=alt_caption, use_container_width=True)
+            st.image(src, use_container_width=True)
             return
         except Exception:
-            # If a URL/path fails once, avoid re-trying it every rerun (keeps player snappy).
-            failed_urls.add(src)
-            st.session_state.failed_image_urls = failed_urls
-            render_fallback_card(alt_caption)
+            st.warning("Could not display illustration for this scene.")
 
     if page_type == "image":
         image_url = ensure_scene_image_url()
         render_scene_image(image_url, f"Illustration for {page.get('heading', f'Image {page_index + 1}')}")
-        st.markdown(
-            f"""
-            <div class='story-page-card'>
-                <div class='story-page-meta'>
-                    <span class='mini-pill'>Image Page {page_index + 1} of {total_pages}</span>
-                    <span class='story-page-stars'>🎨 ✨ 🖼️</span>
-                </div>
-                <div class='story-page-heading'>{escape(str(page.get('heading', f'Image {page_index + 1}')))}</div>
-                <div class='story-page-copy'>
-                    <p>{escape(str(page.get('caption', 'Take a breath and imagine this magical moment.')))}</p>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
         return
 
     paragraphs = [part.strip() for part in re.split(r"\n{2,}", str(page.get("text", ""))) if part.strip()]
     paragraph_html = "".join(f"<p>{escape(paragraph)}</p>" for paragraph in paragraphs)
 
-    text_col, image_col = st.columns([1.45, 1], gap="large")
-    with text_col:
-        st.markdown(
-            f"""
-            <div class='story-page-card'>
-                <div class='story-page-meta'>
-                    <span class='mini-pill'>Page {page_index + 1} of {total_pages}</span>
-                    <span class='story-page-stars'>✨ ⭐ ✨</span>
-                </div>
-                <div class='story-page-heading'>{escape(str(page.get('heading', f'Page {page_index + 1}')))}</div>
-                <div class='story-page-copy'>
-                    {paragraph_html}
-                </div>
+    st.markdown(
+        f"""
+        <div class='story-page-card'>
+            <div class='story-page-meta'>
+                <span class='mini-pill'>Page {page_index + 1} of {total_pages}</span>
+                <span class='story-page-stars'>✨ ⭐ ✨</span>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with image_col:
-        side_image_url = ensure_scene_image_url()
-        render_scene_image(side_image_url, "Scene illustration")
+            <div class='story-page-heading'>{escape(str(page.get('heading', f'Page {page_index + 1}')))}</div>
+            <div class='story-page-copy'>
+                {paragraph_html}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_navigation(story_id: int, slot: str = "main") -> None:
@@ -3085,23 +3044,6 @@ def style_app(platform_mode: str) -> None:
                 background: rgba(255,255,255,.5);
                 filter: blur(1px);
                 animation: drift 24s linear infinite;
-            }}
-            .stars span {{
-                position: absolute;
-                font-size: 1.4rem;
-                animation: twinkleStar 5s ease-in-out infinite;
-                filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.55));
-            }}
-            .butterflies span {{
-                position: absolute;
-                font-size: 2rem;
-                animation: flutter 3.5s ease-in-out infinite;
-            }}
-            .creatures span {{
-                position: absolute;
-                font-size: 2.2rem;
-                animation: wander 8s ease-in-out infinite;
-                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
             }}
             @keyframes twinkle {{
                 0%, 100% {{ transform: scale(0.5); opacity: 0.3; }}
@@ -3424,23 +3366,6 @@ def style_app(platform_mode: str) -> None:
             <span style="top:6%; left:-100px; animation-delay:0s"></span>
             <span style="top:20%; left:-220px; animation-delay:7s"></span>
             <span style="top:42%; left:-180px; animation-delay:11s"></span>
-        </div>
-        <div class="stars">
-            <span style="top:10%; left:18%; animation-delay:.2s">⭐</span>
-            <span style="top:18%; left:84%; animation-delay:1.1s">✨</span>
-            <span style="top:52%; left:6%; animation-delay:2.1s">⭐</span>
-            <span style="top:76%; left:78%; animation-delay:1.7s">✨</span>
-        </div>
-        <div class="butterflies">
-            <span style="top:15%; left:5%; animation-delay:0s">🦋</span>
-            <span style="top:40%; left:92%; animation-delay:1.5s">🦋</span>
-            <span style="top:25%; left:45%; animation-delay:0.8s">🦋</span>
-        </div>
-        <div class="creatures">
-            <span style="top:35%; left:8%; animation-delay:0s">🐰</span>
-            <span style="top:55%; left:85%; animation-delay:1.2s">🦊</span>
-            <span style="top:20%; left:75%; animation-delay:2.5s">🐻</span>
-            <span style="top:65%; left:20%; animation-delay:1.8s">🐾</span>
         </div>
         """,
         unsafe_allow_html=True,
