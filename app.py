@@ -2345,6 +2345,8 @@ def init_state() -> None:
         st.session_state.auto_selected_voice = "Playful Boy"
     if "audio_cache" not in st.session_state:
         st.session_state.audio_cache = {}
+    if "failed_image_urls" not in st.session_state:
+        st.session_state.failed_image_urls = set()
     if "ambience_enabled" not in st.session_state:
         st.session_state.ambience_enabled = False
     if "playback_mode" not in st.session_state:
@@ -2703,8 +2705,14 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
 
     def render_scene_image(image_src: str, alt_caption: str) -> None:
         src = str(image_src or "").strip()
+        fallback_url = "https://placehold.co/1536x1024/eef2ff/312e81?text=Magical+Scene+Illustration"
         if not src:
-            st.info("Illustration is loading for this page...")
+            st.image(fallback_url, caption=alt_caption, use_container_width=True)
+            return
+
+        failed_urls = st.session_state.get("failed_image_urls", set())
+        if src in failed_urls:
+            st.image(fallback_url, caption=alt_caption, use_container_width=True)
             return
 
         # Streamlit handles local and remote image serving more reliably than raw HTML img.
@@ -2712,7 +2720,10 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
             st.image(src, caption=alt_caption, use_container_width=True)
             return
         except Exception:
-            st.info("Illustration is loading for this page...")
+            # If a URL/path fails once, avoid re-trying it every rerun (keeps player snappy).
+            failed_urls.add(src)
+            st.session_state.failed_image_urls = failed_urls
+            st.image(fallback_url, caption=alt_caption, use_container_width=True)
 
     if page_type == "image":
         image_url = ensure_scene_image_url()
