@@ -27,7 +27,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-DB_PATH = "storyspark.db"
+DB_PATH = "/data/storyspark.db" if os.path.isdir("/data") else "storyspark.db"
 
 APP_NAME = "Wonderloom"
 APP_TAGLINE = "Magical stories. Bright young minds."
@@ -1766,27 +1766,16 @@ def render_speech_widget(text: str, voice_profile: Dict[str, Any], widget_key: s
       function pickVoice_{widget_key}() {{
         const voices = synth_{widget_key}.getVoices();
         if (!voices || !voices.length) return null;
-        // Priority 1: high-quality neural / online voices for the right gender
-        const naturalPatterns = [
-          /google uk english female/i,
-          /google us english/i,
-          /microsoft.*jenny.*online/i,
-          /microsoft.*aria.*online/i,
-          /microsoft.*guy.*online/i,
-          /microsoft.*ryan.*online/i,
-          /natural/i,
-          /neural/i,
-          /samantha/i,
-          /karen/i,
-          /moira/i,
-        ];
-        for (const pat of naturalPatterns) {{
-          const v = voices.find(v => pat.test(v.name));
-          if (v) return v;
-        }}
-        // Priority 2: voice-character regex
+        // Priority 1: voices matching the selected character profile (gender + style)
         const rx = new RegExp({safe_regex}, 'i');
-        return voices.find(v => rx.test(v.name)) || voices[0];
+        const matched = voices.filter(v => rx.test(v.name));
+        // Within profile matches, prefer high-quality online/neural voices
+        const quality = /online|natural|neural/i;
+        const best = matched.find(v => quality.test(v.name));
+        if (best) return best;
+        if (matched.length) return matched[0];
+        // No profile match — fall back to any quality voice then first available
+        return voices.find(v => quality.test(v.name)) || voices[0];
       }}
 
       function play_{widget_key}(restart) {{
