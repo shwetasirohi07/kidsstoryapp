@@ -1,4 +1,16 @@
 venv/
+.venv*/
 __pycache__/
 *.pyc
 .env
+
+# Database contains API keys – never push
+storyspark.db
+
+# Local caches – large binary files
+.image_cache/
+.audio_cache/
+
+# Logs
+*.log
+image_generation.log

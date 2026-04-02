@@ -2,6 +2,7 @@ import io
 import hashlib
 import json
 import math
+import os
 import random
 import re
 import sqlite3
@@ -52,9 +53,7 @@ LOCATION_OPTIONS = ["Jungle", "Space", "Ocean", "School", "Magical Land", "Mount
 MORAL_OPTIONS = ["Kindness", "Honesty", "Bravery", "Sharing"]
 VOICE_STYLES = [
     "Playful Boy",
-    "Energetic Boy",
     "Shy Boy",
-    "Brave Adventure Boy",
     "Funny Mischievous Boy",
     "Sweet Girl",
     "Cheerful Girl",
@@ -124,22 +123,22 @@ AMBIENCE_TRACKS = {
     "Bedtime Calm": "__internal_cozy_lullaby__",
     "Forest Birds": "https://actions.google.com/sounds/v1/animals/birds_in_forest.ogg",
     "Magical Chimes": "https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg",
-    "Rainy Day": "https://actions.google.com/sounds/v1/weather/rain_on_umbrella.ogg",
+    "Rainy Day": "__internal_rain_ambience__",
     "Adventure Breeze": "https://actions.google.com/sounds/v1/water/wind_chimes.ogg",
     "Happy Classroom": "https://actions.google.com/sounds/v1/ambiences/classroom.ogg",
 }
 
 VOICE_PROFILES: List[Dict[str, Any]] = [
-    {"label": "Playful Boy", "gender": "boy", "mood": "fun", "rate": 1.03, "pitch": 1.22, "voice_regex": r"male|boy|david|alex|mark|ryan"},
-    {"label": "Energetic Boy", "gender": "boy", "mood": "adventure", "rate": 1.08, "pitch": 1.15, "voice_regex": r"male|boy|david|alex|google uk english male"},
-    {"label": "Shy Boy", "gender": "boy", "mood": "calm", "rate": 0.92, "pitch": 1.08, "voice_regex": r"male|boy|microsoft david|google us english"},
-    {"label": "Brave Adventure Boy", "gender": "boy", "mood": "adventure", "rate": 1.0, "pitch": 1.1, "voice_regex": r"male|boy|mark|alex|guy"},
-    {"label": "Funny Mischievous Boy", "gender": "boy", "mood": "fun", "rate": 1.14, "pitch": 1.25, "voice_regex": r"male|boy|david|ryan|google us english"},
-    {"label": "Sweet Girl", "gender": "girl", "mood": "warm", "rate": 0.97, "pitch": 1.27, "voice_regex": r"female|girl|zira|samantha|victoria|aria"},
-    {"label": "Cheerful Girl", "gender": "girl", "mood": "fun", "rate": 1.06, "pitch": 1.32, "voice_regex": r"female|girl|zira|samantha|google uk english female"},
-    {"label": "Calm Bedtime Girl", "gender": "girl", "mood": "bedtime", "rate": 0.86, "pitch": 1.12, "voice_regex": r"female|girl|victoria|susan|samantha"},
-    {"label": "Curious Girl", "gender": "girl", "mood": "mystery", "rate": 0.98, "pitch": 1.22, "voice_regex": r"female|girl|zira|samantha|google us english"},
-    {"label": "Magical Fairy Girl", "gender": "girl", "mood": "magical", "rate": 0.93, "pitch": 1.38, "voice_regex": r"female|girl|victoria|zira|google uk english female"},
+    # pitch kept at 1.0 so the browser engine doesn't distort the voice.
+    # Rates tuned for calm, clear children's narration.
+    {"label": "Playful Boy",           "gender": "boy",  "mood": "fun",     "rate": 0.95, "pitch": 1.0,  "voice_regex": r"guy online|google us english|male|boy|david|alex|mark"},
+    {"label": "Shy Boy",               "gender": "boy",  "mood": "calm",    "rate": 0.88, "pitch": 1.0,  "voice_regex": r"guy online|google us english|male|boy|david"},
+    {"label": "Funny Mischievous Boy", "gender": "boy",  "mood": "fun",     "rate": 0.98, "pitch": 1.0,  "voice_regex": r"guy online|google us english|male|boy|david|ryan"},
+    {"label": "Sweet Girl",            "gender": "girl", "mood": "warm",    "rate": 0.90, "pitch": 1.0,  "voice_regex": r"jenny online|aria online|google uk english female|female|girl|zira|samantha|victoria"},
+    {"label": "Cheerful Girl",         "gender": "girl", "mood": "fun",     "rate": 0.95, "pitch": 1.0,  "voice_regex": r"jenny online|aria online|google uk english female|female|girl|zira|samantha"},
+    {"label": "Calm Bedtime Girl",     "gender": "girl", "mood": "bedtime", "rate": 0.82, "pitch": 1.0,  "voice_regex": r"aria online|jenny online|google uk english female|female|girl|samantha|victoria"},
+    {"label": "Curious Girl",          "gender": "girl", "mood": "mystery", "rate": 0.90, "pitch": 1.0,  "voice_regex": r"jenny online|aria online|google uk english female|female|girl|zira|samantha"},
+    {"label": "Magical Fairy Girl",    "gender": "girl", "mood": "magical", "rate": 0.88, "pitch": 1.0,  "voice_regex": r"aria online|jenny online|google uk english female|female|girl|victoria|zira"},
 ]
 
 GLOBAL_STORY_RULES = {
@@ -158,9 +157,7 @@ REWRITE_STYLE_OPTIONS = ["Funny", "Adventurous", "Magical", "Emotional", "Myster
 TTS_PROVIDERS = ["Browser Speech", "OpenAI TTS", "ElevenLabs"]
 OPENAI_TTS_VOICE_MAP = {
     "Playful Boy": "alloy",
-    "Energetic Boy": "alloy",
     "Shy Boy": "ash",
-    "Brave Adventure Boy": "echo",
     "Funny Mischievous Boy": "ballad",
     "Sweet Girl": "nova",
     "Cheerful Girl": "sage",
@@ -169,16 +166,14 @@ OPENAI_TTS_VOICE_MAP = {
     "Magical Fairy Girl": "coral",
 }
 ELEVENLABS_VOICE_MAP = {
-    "Playful Boy": "EXAVITQu4vr4xnSDxMaL",
-    "Energetic Boy": "TxGEqnHWrfWFTfGW9XjX",
+    "Playful Boy": "TX3LPaxmHKxFdv7VOQHJ",
     "Shy Boy": "onwK4e9ZLuTAKqWW03F9",
-    "Brave Adventure Boy": "VR6AewLTigWG4xSOukaG",
     "Funny Mischievous Boy": "bIHbv24MWmeRgasZH58o",
-    "Sweet Girl": "XB0fDUnXU5powFXDhCwa",
-    "Cheerful Girl": "XrExE9yKIg1WjnnlVkGX",
-    "Calm Bedtime Girl": "ThT5KcBeYPX3keUQqHPh",
-    "Curious Girl": "pqHfZKP75CvOlQylNhV4",
-    "Magical Fairy Girl": "Xb7hH8MSUJpSbSDYk0k2",
+    "Sweet Girl": "EXAVITQu4vr4xnSDxMaL",
+    "Cheerful Girl": "cgSgspJ2msm6clMCkdW9",
+    "Calm Bedtime Girl": "pFZP5JQG7iQjIQuC4Bku",
+    "Curious Girl": "Xb7hH8MSUJpSbSDYk0k2",
+    "Magical Fairy Girl": "FGY2WhTYpPnrIDTdsKH5",
 }
 TTS_CACHE_DIR = Path(".audio_cache")
 IMAGE_CACHE_DIR = Path(".image_cache")
@@ -439,11 +434,20 @@ def choose_feedback_message(score: int, total: int, messages: Optional[List[str]
     return pool[min(1, len(pool) - 1)]
 
 
+def clean_story_title(raw_title: Any, fallback: str = "Untitled Story") -> str:
+    title = str(raw_title or "").strip()
+    if not title:
+        return fallback
+    # Strip generated trailing markers like "#143" while preserving normal title text.
+    title = re.sub(r"\s*#\d+\s*$", "", title).strip(" -\t\n\r")
+    return title or fallback
+
+
 def normalize_story_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         payload = {}
 
-    title = str(payload.get("title", "Untitled Story")).strip() or "Untitled Story"
+    title = clean_story_title(payload.get("title", "Untitled Story"), "Untitled Story")
     subtitle = str(payload.get("subtitle", "A gentle story for little readers.")).strip()
     age_group = str(payload.get("age_group", "6-8")).strip() or "6-8"
     category = str(payload.get("category", payload.get("story_type", "Magical"))).strip() or "Magical"
@@ -589,6 +593,42 @@ def build_cozy_lullaby_wav() -> bytes:
     return wav.getvalue()
 
 
+@st.cache_data(show_spinner=False)
+def build_rain_ambience_wav(duration_seconds: float = 18.0) -> bytes:
+    sample_rate = 22050
+    total_samples = int(sample_rate * max(6.0, duration_seconds))
+    rng = random.Random(42)
+    frames = bytearray()
+
+    prev = 0.0
+    for n in range(total_samples):
+        # Filtered noise gives a soft rain-bed without harsh hiss.
+        white = (rng.random() * 2.0) - 1.0
+        prev = (0.985 * prev) + (0.015 * white)
+
+        # Sparse brighter drops for natural rain texture.
+        drop = 0.0
+        if rng.random() < 0.004:
+            drop = ((rng.random() * 2.0) - 1.0) * 0.35
+
+        t = n / sample_rate
+        swell = 0.78 + 0.22 * math.sin(2.0 * math.pi * 0.045 * t)
+        sample = int(7300 * swell * (0.9 * prev + 0.1 * drop))
+        frames.extend(struct.pack("<h", max(-32767, min(32767, sample))))
+
+    wav = io.BytesIO()
+    data_size = len(frames)
+    byte_rate = sample_rate * 2
+    wav.write(b"RIFF")
+    wav.write(struct.pack("<I", 36 + data_size))
+    wav.write(b"WAVEfmt ")
+    wav.write(struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, byte_rate, 2, 16))
+    wav.write(b"data")
+    wav.write(struct.pack("<I", data_size))
+    wav.write(frames)
+    return wav.getvalue()
+
+
 def render_music_track(track_key: str) -> None:
     source = MUSIC_TRACKS.get(track_key)
     if not source:
@@ -606,6 +646,9 @@ def render_ambience_track(track_key: str) -> None:
         return
     if source == "__internal_cozy_lullaby__":
         st.audio(build_cozy_lullaby_wav(), format="audio/wav")
+        return
+    if source == "__internal_rain_ambience__":
+        st.audio(build_rain_ambience_wav(), format="audio/wav")
         return
     if isinstance(source, str):
         fmt = "audio/ogg" if source.endswith(".ogg") else "audio/mp3"
@@ -663,10 +706,45 @@ def save_story(profile_id: Optional[int], payload: Dict[str, Any], story_type: s
 
 
 def story_title_exists(title: str) -> bool:
+    clean = clean_story_title(title, "")
+    if not clean:
+        return False
     conn = db()
-    row = conn.execute("SELECT 1 FROM stories WHERE title=? LIMIT 1", (title,)).fetchone()
+    row = conn.execute("SELECT 1 FROM stories WHERE lower(title)=lower(?) LIMIT 1", (clean,)).fetchone()
     conn.close()
     return row is not None
+
+
+def remove_numeric_suffix_from_stored_titles() -> int:
+    conn = db()
+    rows = conn.execute("SELECT id, title, content_json FROM stories").fetchall()
+    updated = 0
+    for row in rows:
+        clean_title = clean_story_title(row["title"], "Untitled Story")
+        content_json = row["content_json"]
+        content_changed = False
+
+        try:
+            payload = json.loads(content_json)
+            if isinstance(payload, dict):
+                payload_title = clean_story_title(payload.get("title", clean_title), clean_title)
+                if payload.get("title") != payload_title:
+                    payload["title"] = payload_title
+                    content_json = json.dumps(payload)
+                    content_changed = True
+        except Exception:
+            payload = None
+
+        if row["title"] != clean_title or content_changed:
+            conn.execute(
+                "UPDATE stories SET title=?, content_json=? WHERE id=?",
+                (clean_title, content_json, row["id"]),
+            )
+            updated += 1
+
+    conn.commit()
+    conn.close()
+    return updated
 
 
 def infer_story_type(text: str) -> str:
@@ -750,7 +828,7 @@ def paragraphs_to_scenes(story_text: str) -> List[Dict[str, str]]:
 
 
 def external_story_to_payload(item: Dict[str, Any]) -> Dict[str, Any]:
-    title = str(item.get("title", "Untitled Story")).strip() or "Untitled Story"
+    title = clean_story_title(item.get("title", "Untitled Story"), "Untitled Story")
     subtitle = str(item.get("subtitle", "A gentle story for little readers.")).strip()
     story_text = str(item.get("story", "")).strip()
     moral_text = str(item.get("moral", "Kindness makes every place feel warmer.")).strip()
@@ -775,7 +853,7 @@ def external_story_to_payload(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def unique_story_title(base_title: str) -> str:
-    clean = base_title.strip() or "Untitled Story"
+    clean = clean_story_title(base_title, "Untitled Story")
     if not story_title_exists(clean):
         return clean
     suffix = 2
@@ -799,13 +877,14 @@ def import_story_json_file(file_path: str, allow_duplicate_titles: bool = False)
         if not isinstance(item, dict):
             skipped += 1
             continue
-        title = str(item.get("title", "")).strip()
+        title = clean_story_title(item.get("title", ""), "")
         if not title:
             skipped += 1
             continue
+        item = dict(item)
+        item["title"] = title
         if story_title_exists(title):
             if allow_duplicate_titles:
-                item = dict(item)
                 item["title"] = unique_story_title(title)
                 forced += 1
             else:
@@ -1177,18 +1256,52 @@ def extract_story_vocabulary(story_text: str, min_items: int = 6, max_items: int
         "marvel": "Something amazing that fills you with wonder.",
     }
 
-    tokens = [t.lower() for t in re.findall(r"\b[a-zA-Z]{5,12}\b", str(story_text or ""))]
-    picked: List[str] = []
-    for token in tokens:
-        if token in picked:
+    common_exclusions = {
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
+        "river", "market", "captain", "dragon", "child", "children", "story", "friend", "people", "every", "shops",
+        "there", "their", "where", "which", "about", "little", "bright", "magic", "magical", "happy", "looked", "looking",
+        "walked", "across", "before", "after", "around", "together", "morning", "evening", "softly", "gently", "helped",
+        "ferry", "foxglove", "tansy",
+    }
+
+    advanced_suffixes = ("ous", "ful", "tion", "sion", "ment", "ness", "ture", "light", "scape", "craft", "bloom", "ward", "wise")
+
+    token_list = [t.lower() for t in re.findall(r"\b[a-zA-Z]{5,14}\b", str(story_text or ""))]
+    token_counts: Dict[str, int] = {}
+    for token in token_list:
+        token_counts[token] = token_counts.get(token, 0) + 1
+
+    ranked_candidates: List[Tuple[int, str]] = []
+    for token in token_list:
+        if token in common_exclusions:
             continue
-        if token in simple_defs or len(token) >= 7:
+        if token in {word for _, word in ranked_candidates}:
+            continue
+
+        is_curated = token in simple_defs
+        looks_advanced = len(token) >= 8 or token.endswith(advanced_suffixes)
+        if not is_curated and not looks_advanced:
+            continue
+
+        score = 0
+        if is_curated:
+            score += 6
+        score += min(max(len(token) - 5, 0), 6)
+        score += 2 if token_counts.get(token, 0) <= 2 else 0
+        ranked_candidates.append((score, token))
+
+    ranked_candidates.sort(key=lambda item: (-item[0], item[1]))
+
+    picked: List[str] = []
+    for _, token in ranked_candidates:
+        if token not in picked:
             picked.append(token)
         if len(picked) >= max_items:
             break
 
     if len(picked) < min_items:
-        fallback = ["curious", "journey", "gentle", "sparkle", "courage", "mystery", "whisper", "meadow"]
+        fallback = ["curious", "journey", "courage", "mystery", "whisper", "twilight", "cautious", "meadow"]
         for word in fallback:
             if word not in picked:
                 picked.append(word)
@@ -1209,10 +1322,40 @@ def tts_preview_url(text: str) -> str:
 
 
 def get_tts_provider_settings() -> Dict[str, str]:
+    def secret_or_env(*names: str) -> str:
+        for name in names:
+            value = ""
+            try:
+                value = str(st.secrets.get(name, "") or "")
+            except Exception:
+                value = ""
+            if value.strip():
+                return value.strip()
+            env_val = str(os.getenv(name, "") or "").strip()
+            if env_val:
+                return env_val
+        return ""
+
+    provider = str(get_setting("tts_provider", "Browser Speech") or "Browser Speech")
+    openai_key = str(get_setting("tts_openai_key", "") or "").strip()
+    elevenlabs_key = str(get_setting("tts_elevenlabs_key", "") or "").strip()
+
+    if not openai_key:
+        openai_key = secret_or_env("OPENAI_TTS_API_KEY", "OPENAI_API_KEY")
+    if not elevenlabs_key:
+        elevenlabs_key = secret_or_env("ELEVENLABS_API_KEY")
+
+    # If user did not explicitly choose a premium provider, auto-upgrade when a key is available.
+    if provider == "Browser Speech":
+        if openai_key:
+            provider = "OpenAI TTS"
+        elif elevenlabs_key:
+            provider = "ElevenLabs"
+
     return {
-        "provider": str(get_setting("tts_provider", "Browser Speech") or "Browser Speech"),
-        "openai_key": str(get_setting("tts_openai_key", "") or ""),
-        "elevenlabs_key": str(get_setting("tts_elevenlabs_key", "") or ""),
+        "provider": provider,
+        "openai_key": openai_key,
+        "elevenlabs_key": elevenlabs_key,
         "openai_model": str(get_setting("tts_openai_model", "gpt-4o-mini-tts") or "gpt-4o-mini-tts"),
         "elevenlabs_model": str(get_setting("tts_elevenlabs_model", "eleven_multilingual_v2") or "eleven_multilingual_v2"),
     }
@@ -1237,6 +1380,37 @@ def cache_audio_file_name(provider: str, voice_id: str, text: str) -> Path:
     return TTS_CACHE_DIR / f"{fingerprint}.mp3"
 
 
+def describe_tts_api_error(response: Optional[requests.Response], provider_name: str) -> str:
+    if response is None:
+        return f"{provider_name} narration is unavailable right now."
+
+    try:
+        body = response.json()
+    except Exception:
+        body = None
+
+    status_code = int(getattr(response, "status_code", 0) or 0)
+    if provider_name == "ElevenLabs" and status_code == 401 and isinstance(body, dict):
+        detail = body.get("detail", {}) if isinstance(body.get("detail"), dict) else {}
+        if str(detail.get("status", "")) == "missing_permissions":
+            return "ElevenLabs key is saved, but it does not have text_to_speech permission. Update the ElevenLabs API key or permissions in Parent Zone."
+
+    if isinstance(body, dict):
+        if isinstance(body.get("error"), dict):
+            message = str(body["error"].get("message", "")).strip()
+            if message:
+                return f"{provider_name} error: {message}"
+        detail = body.get("detail")
+        if isinstance(detail, dict):
+            message = str(detail.get("message", "")).strip()
+            if message:
+                return f"{provider_name} error: {message}"
+        if isinstance(detail, str) and detail.strip():
+            return f"{provider_name} error: {detail.strip()}"
+
+    return f"{provider_name} narration is unavailable right now (HTTP {status_code})."
+
+
 def generate_openai_tts_audio(
     text: str,
     api_key: str,
@@ -1244,9 +1418,10 @@ def generate_openai_tts_audio(
     model: str,
     instructions: str,
     speed: float,
-) -> Optional[bytes]:
+) -> Tuple[Optional[bytes], str]:
     if not api_key:
-        return None
+        return None, "OpenAI TTS key is missing."
+    response: Optional[requests.Response] = None
     try:
         response = requests.post(
             "https://api.openai.com/v1/audio/speech",
@@ -1262,9 +1437,9 @@ def generate_openai_tts_audio(
             timeout=35,
         )
         response.raise_for_status()
-        return response.content
+        return response.content, ""
     except Exception:
-        return None
+        return None, describe_tts_api_error(response, "OpenAI TTS")
 
 
 def generate_elevenlabs_tts_audio(
@@ -1274,9 +1449,10 @@ def generate_elevenlabs_tts_audio(
     model: str,
     style: float,
     stability: float,
-) -> Optional[bytes]:
+) -> Tuple[Optional[bytes], str]:
     if not api_key:
-        return None
+        return None, "ElevenLabs key is missing."
+    response: Optional[requests.Response] = None
     try:
         response = requests.post(
             f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
@@ -1298,23 +1474,23 @@ def generate_elevenlabs_tts_audio(
             timeout=35,
         )
         response.raise_for_status()
-        return response.content
+        return response.content, ""
     except Exception:
-        return None
+        return None, describe_tts_api_error(response, "ElevenLabs")
 
 
 def get_or_generate_provider_audio(text: str, voice_label: str, delivery: Dict[str, Any]) -> Dict[str, Any]:
     settings = get_tts_provider_settings()
     provider = settings["provider"]
     if provider not in TTS_PROVIDERS or provider == "Browser Speech":
-        return {"status": "fallback", "engine": "browser_speech", "audio_path": None}
+        return {"status": "fallback", "engine": "browser_speech", "audio_path": None, "error_message": ""}
 
     if provider == "OpenAI TTS":
         voice_id = OPENAI_TTS_VOICE_MAP.get(voice_label, "nova")
         cache_path = cache_audio_file_name(provider, voice_id, f"{text}|{delivery.get('mood')}|{delivery.get('speed')}")
         if cache_path.exists():
-            return {"status": "ready", "engine": "openai_tts", "audio_path": str(cache_path)}
-        audio_bytes = generate_openai_tts_audio(
+            return {"status": "ready", "engine": "openai_tts", "audio_path": str(cache_path), "error_message": ""}
+        audio_bytes, error_message = generate_openai_tts_audio(
             text=text,
             api_key=settings["openai_key"],
             voice_id=voice_id,
@@ -1323,16 +1499,16 @@ def get_or_generate_provider_audio(text: str, voice_label: str, delivery: Dict[s
             speed=float(delivery.get("speed", 1.0)),
         )
         if not audio_bytes:
-            return {"status": "fallback", "engine": "browser_speech", "audio_path": None}
+            return {"status": "fallback", "engine": "browser_speech", "audio_path": None, "error_message": error_message}
         cache_path.write_bytes(audio_bytes)
-        return {"status": "ready", "engine": "openai_tts", "audio_path": str(cache_path)}
+        return {"status": "ready", "engine": "openai_tts", "audio_path": str(cache_path), "error_message": ""}
 
     if provider == "ElevenLabs":
-        voice_id = ELEVENLABS_VOICE_MAP.get(voice_label, "XB0fDUnXU5powFXDhCwa")
+        voice_id = ELEVENLABS_VOICE_MAP.get(voice_label, "EXAVITQu4vr4xnSDxMaL")  # fallback: Sarah
         cache_path = cache_audio_file_name(provider, voice_id, f"{text}|{delivery.get('mood')}|{delivery.get('eleven_style')}")
         if cache_path.exists():
-            return {"status": "ready", "engine": "elevenlabs", "audio_path": str(cache_path)}
-        audio_bytes = generate_elevenlabs_tts_audio(
+            return {"status": "ready", "engine": "elevenlabs", "audio_path": str(cache_path), "error_message": ""}
+        audio_bytes, error_message = generate_elevenlabs_tts_audio(
             text=text,
             api_key=settings["elevenlabs_key"],
             voice_id=voice_id,
@@ -1341,11 +1517,11 @@ def get_or_generate_provider_audio(text: str, voice_label: str, delivery: Dict[s
             stability=float(delivery.get("eleven_stability", 0.45)),
         )
         if not audio_bytes:
-            return {"status": "fallback", "engine": "browser_speech", "audio_path": None}
+            return {"status": "fallback", "engine": "browser_speech", "audio_path": None, "error_message": error_message}
         cache_path.write_bytes(audio_bytes)
-        return {"status": "ready", "engine": "elevenlabs", "audio_path": str(cache_path)}
+        return {"status": "ready", "engine": "elevenlabs", "audio_path": str(cache_path), "error_message": ""}
 
-    return {"status": "fallback", "engine": "browser_speech", "audio_path": None}
+    return {"status": "fallback", "engine": "browser_speech", "audio_path": None, "error_message": ""}
 
 
 def ensure_story_structure(story: Dict[str, Any]) -> Dict[str, Any]:
@@ -1385,7 +1561,7 @@ def pick_auto_voice_label(story: Dict[str, Any]) -> str:
         if "bedtime" in category.lower() or "sleep" in subtitle:
             return "Shy Boy"
         if "adventure" in category.lower():
-            return "Brave Adventure Boy"
+            return "Playful Boy"
         if "funny" in category.lower():
             return "Funny Mischievous Boy"
         return "Playful Boy"
@@ -1400,16 +1576,16 @@ def pick_auto_voice_label(story: Dict[str, Any]) -> str:
         return "Sweet Girl"
 
     if "bedtime" in category.lower() or "sleep" in subtitle:
-        return "Shy Boy"
+        return "Calm Bedtime Girl"
     if "adventure" in category.lower():
-        return "Brave Adventure Boy"
+        return "Cheerful Girl"
     if "funny" in category.lower():
         return "Funny Mischievous Boy"
     if "magical" in category.lower() or "fairy" in story_text:
-        return "Playful Boy"
+        return "Magical Fairy Girl"
     if "mystery" in story_text or "secret" in story_text:
-        return "Brave Adventure Boy"
-    return "Playful Boy"
+        return "Curious Girl"
+    return "Sweet Girl"
 
 
 def get_story_voice(story: Dict[str, Any], manual_override: Optional[str] = None) -> Dict[str, Any]:
@@ -1437,9 +1613,9 @@ def infer_scene_delivery(story: Dict[str, Any], page: Dict[str, Any]) -> Dict[st
     mood = "warm_narration"
     speed = 1.0
     pitch = 1.0
-    openai_instructions = "Read naturally like a premium children's audiobook narrator."
-    eleven_style = 0.35
-    eleven_stability = 0.45
+    openai_instructions = "Narrate warmly and naturally like a calm, friendly children's audiobook voice. Speak at a comfortable pace with gentle expression — no robotic tone, no exaggerated excitement."
+    eleven_style = 0.28
+    eleven_stability = 0.55
 
     suspense_cues = ["mystery", "secret", "shadow", "whisper", "clue", "silent", "unknown"]
     excited_cues = ["suddenly", "quickly", "ran", "jumped", "wow", "!", "adventure"]
@@ -1447,36 +1623,36 @@ def infer_scene_delivery(story: Dict[str, Any], page: Dict[str, Any]) -> Dict[st
 
     if page_type == "image":
         mood = "soft_scene"
-        speed = 0.92
-        pitch = 1.02
-        openai_instructions = "Describe this scene softly and warmly. Keep it short, gentle, and cinematic."
-        eleven_style = 0.25
-        eleven_stability = 0.55
+        speed = 0.90
+        pitch = 1.0
+        openai_instructions = "Describe this illustration moment softly and warmly in a gentle, cinematic storytelling voice. Slow pace, soothing tone."
+        eleven_style = 0.20
+        eleven_stability = 0.65
     elif any(cue in text for cue in suspense_cues) or "mystery" in category:
         mood = "suspense"
-        speed = 0.9
+        speed = 0.88
         pitch = 1.0
-        openai_instructions = "Read with gentle suspense, curious pauses, and a storytelling tone for children."
-        eleven_style = 0.5
-        eleven_stability = 0.5
+        openai_instructions = "Read in a calm, thoughtful storytelling voice with gentle curiosity and soft pauses. Keep it warm and child-friendly — not scary."
+        eleven_style = 0.35
+        eleven_stability = 0.58
     elif any(cue in text for cue in excited_cues) or "adventure" in category:
         mood = "excited"
-        speed = 1.08
-        pitch = 1.05
-        openai_instructions = "Read with energetic excitement and clear articulation like an adventure storyteller for kids."
-        eleven_style = 0.55
-        eleven_stability = 0.38
+        speed = 0.95
+        pitch = 1.0
+        openai_instructions = "Read with warm enthusiasm and natural energy, like an engaging children's storyteller. Clear words, friendly tone — uplifting but not rushed."
+        eleven_style = 0.42
+        eleven_stability = 0.48
     elif any(cue in text for cue in calm_cues) or "bedtime" in category:
         mood = "calm"
-        speed = 0.84
-        pitch = 0.98
-        openai_instructions = "Read softly, soothingly, and slowly like a bedtime narrator for children."
-        eleven_style = 0.3
-        eleven_stability = 0.62
+        speed = 0.83
+        pitch = 1.0
+        openai_instructions = "Read slowly and soothingly like a caring bedtime narrator. Soft, warm, and peaceful — every word unhurried."
+        eleven_style = 0.22
+        eleven_stability = 0.70
 
     if page.get("dialogue"):
-        openai_instructions += " Give dialogue lines more expression than narration, while staying child-friendly."
-        eleven_style = min(0.75, eleven_style + 0.08)
+        openai_instructions += " Bring dialogue lines to life with gentle character expression while keeping the tone child-safe and warm."
+        eleven_style = min(0.65, eleven_style + 0.08)
 
     return {
         "mood": mood,
@@ -1523,11 +1699,47 @@ def generate_audio_for_page(story_id: int, page_index: int, page: Dict[str, Any]
         "narration": narration,
         "status": provider_audio.get("status", "ready"),
         "audio_path": provider_audio.get("audio_path"),
+        "error_message": provider_audio.get("error_message", ""),
         "delivery": delivery,
     }
     cache[cache_key] = audio_payload
     st.session_state.audio_cache = cache
     return audio_payload
+
+
+def render_listen_audio_player(audio_path: str, widget_key: str, auto_play: bool, auto_advance_token: str) -> bool:
+        try:
+                audio_bytes = Path(audio_path).read_bytes()
+        except Exception:
+                return False
+
+        audio_data_uri = f"data:audio/mp3;base64,{base64.b64encode(audio_bytes).decode('ascii')}"
+        safe_src = json.dumps(audio_data_uri)
+        safe_token = json.dumps(str(auto_advance_token or ""))
+        html = f"""
+        <div style='padding:4px 0 8px;'>
+            <audio id='listen_audio_{widget_key}' controls {'autoplay' if auto_play else ''} style='width:100%;'>
+                <source src={safe_src} type='audio/mp3'>
+            </audio>
+        </div>
+        <script>
+            const audioEl = document.getElementById('listen_audio_{widget_key}');
+            const autoAdvanceToken = {safe_token};
+            if (audioEl && autoAdvanceToken) {{
+                audioEl.addEventListener('ended', () => {{
+                    try {{
+                        const parentUrl = new URL(window.parent.location.href);
+                        parentUrl.searchParams.set('autonext', autoAdvanceToken);
+                        window.parent.location.href = parentUrl.toString();
+                    }} catch (error) {{
+                        console.warn('Could not auto-advance story page', error);
+                    }}
+                }});
+            }}
+        </script>
+        """
+        components.html(html, height=82, scrolling=False)
+        return True
 
 
 def render_speech_widget(text: str, voice_profile: Dict[str, Any], widget_key: str, title: str = "Listen to this page", auto_play: bool = False) -> None:
@@ -1554,6 +1766,25 @@ def render_speech_widget(text: str, voice_profile: Dict[str, Any], widget_key: s
       function pickVoice_{widget_key}() {{
         const voices = synth_{widget_key}.getVoices();
         if (!voices || !voices.length) return null;
+        // Priority 1: high-quality neural / online voices for the right gender
+        const naturalPatterns = [
+          /google uk english female/i,
+          /google us english/i,
+          /microsoft.*jenny.*online/i,
+          /microsoft.*aria.*online/i,
+          /microsoft.*guy.*online/i,
+          /microsoft.*ryan.*online/i,
+          /natural/i,
+          /neural/i,
+          /samantha/i,
+          /karen/i,
+          /moira/i,
+        ];
+        for (const pat of naturalPatterns) {{
+          const v = voices.find(v => pat.test(v.name));
+          if (v) return v;
+        }}
+        // Priority 2: voice-character regex
         const rx = new RegExp({safe_regex}, 'i');
         return voices.find(v => rx.test(v.name)) || voices[0];
       }}
@@ -1668,7 +1899,7 @@ def ensure_story_questions(story: Dict[str, Any]) -> Dict[str, List[Dict[str, An
         return existing
 
     scenes = story.get("scenes", []) if isinstance(story.get("scenes"), list) else []
-    title = str(story.get("title", "This Story")).strip() or "This Story"
+    title = clean_story_title(story.get("title", "This Story"), "This Story")
     moral = str(story.get("moral", "Kindness makes every place brighter.")).strip() or "Kindness makes every place brighter."
     scene_count = max(1, len(scenes))
     first_heading = scenes[0].get("heading", "Scene 1") if scenes else "Scene 1"
@@ -2218,7 +2449,7 @@ def resolve_scene_image_asset(scene_text: str, provider: str, api_key: str, mode
 
 def enrich_story_with_scene_images(story: Dict[str, Any], provider: str, api_key: str, image_model: str) -> Dict[str, Any]:
     scenes = story.get("scenes", [])
-    story_title = str(story.get("title", "Magical Story"))
+    story_title = clean_story_title(story.get("title", "Magical Story"), "Magical Story")
     for scene in scenes:
         rich_prompt = build_lively_scene_prompt(
             story_title=story_title,
@@ -2294,7 +2525,7 @@ def create_pdf(story: Dict[str, Any]) -> bytes:
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 16)
     pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(0, 10, pdf_safe_text(story.get("title", "Story")))
+    pdf.multi_cell(0, 10, pdf_safe_text(clean_story_title(story.get("title", "Story"), "Story")))
     pdf.set_font("Helvetica", "", 12)
     pdf.set_x(pdf.l_margin)
     pdf.multi_cell(0, 8, pdf_safe_text(story.get("subtitle", "")))
@@ -2734,14 +2965,14 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
                     )
                 if retry_url and str(retry_url).startswith(("http://", "https://")):
                     retry_local = materialize_remote_image_fast(str(retry_url), timeout_seconds=8)
-                    generated_url = retry_local if retry_local and Path(retry_local).exists() else ""
+                    generated_url = retry_local if retry_local and Path(retry_local).exists() else str(retry_url)
                 elif retry_url and Path(str(retry_url)).exists():
                     generated_url = str(retry_url)
                 else:
-                    generated_url = ""
+                    generated_url = current_val
 
         if generated_url and not str(generated_url).startswith(("http://", "https://")) and not Path(str(generated_url)).exists():
-            generated_url = ""
+            generated_url = current_val
 
         page["image_url"] = generated_url
 
@@ -2764,14 +2995,32 @@ def render_story_page(page: Dict[str, Any], page_index: int, total_pages: int) -
     def render_scene_image(image_src: str, alt_caption: str) -> None:
         src = str(image_src or "").strip()
         if not src:
-            st.warning("Could not generate illustration for this scene.")
+            st.markdown(
+                f"""
+                <div style='border-radius:16px; padding:2.2rem 1.2rem; text-align:center; background:linear-gradient(135deg,#fef3c7,#fde68a,#fed7aa); border:1px solid #f59e0b;'>
+                    <div style='font-size:2rem;'>🎨</div>
+                    <div style='font-weight:700; color:#7c2d12; margin-top:0.35rem;'>Illustration is being prepared</div>
+                    <div style='color:#92400e; margin-top:0.2rem;'>{escape(str(alt_caption))}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
             return
 
         try:
             st.image(src, use_container_width=True)
             return
         except Exception:
-            st.warning("Could not display illustration for this scene.")
+            st.markdown(
+                f"""
+                <div style='border-radius:16px; padding:2.2rem 1.2rem; text-align:center; background:linear-gradient(135deg,#fef3c7,#fde68a,#fed7aa); border:1px solid #f59e0b;'>
+                    <div style='font-size:2rem;'>🖼️</div>
+                    <div style='font-weight:700; color:#7c2d12; margin-top:0.35rem;'>Image server is temporarily unavailable</div>
+                    <div style='color:#92400e; margin-top:0.2rem;'>Showing story text while illustration retries in background.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     if page_type == "image":
         image_url = ensure_scene_image_url()
@@ -3361,7 +3610,126 @@ def style_app(platform_mode: str) -> None:
                 transform: translateY(-2px) scale(1.02);
                 box-shadow: 0 12px 24px rgba(96, 165, 250, 0.4) !important;
             }}
+            /* Keep decorative butterflies in the background so text stays clear/readable. */
+            .wl-floating-butterflies {{
+                position: fixed;
+                inset: 0;
+                pointer-events: none;
+                z-index: 0;
+                overflow: hidden;
+            }}
+            .wl-floating-butterflies .wl-bf {{
+                position: absolute;
+                width: clamp(30px, 3.8vw, 52px);
+                height: clamp(34px, 4.2vw, 58px);
+                opacity: 0.56;
+                filter: drop-shadow(0 10px 20px rgba(69, 10, 10, 0.28));
+                animation: wlButterflyFloat var(--dur, 18s) ease-in-out infinite;
+                animation-delay: var(--delay, 0s);
+            }}
+            .wl-floating-butterflies .wl-bf::before,
+            .wl-floating-butterflies .wl-bf::after {{
+                content: "";
+                position: absolute;
+                bottom: 2px;
+                width: 46%;
+                height: 52%;
+                background:
+                    radial-gradient(circle at 30% 24%, rgba(255, 244, 244, 0.98) 0 10%, rgba(255, 244, 244, 0.58) 11%, rgba(255, 244, 244, 0) 19%),
+                    radial-gradient(circle at 38% 34%, rgba(255, 255, 255, 0.28) 0 9%, rgba(255, 255, 255, 0) 20%),
+                    linear-gradient(165deg, var(--c1, #ef4444), var(--c2, #991b1b) 52%, var(--c3, #450a0a));
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.34), inset -3px -7px 12px rgba(69, 10, 10, 0.34), 0 6px 12px rgba(69, 10, 10, 0.24);
+            }}
+            .wl-floating-butterflies .wl-bf::before {{
+                left: 0;
+                border-radius: 50% 50% 46% 46%;
+            }}
+            .wl-floating-butterflies .wl-bf::after {{
+                right: 0;
+                border-radius: 50% 50% 46% 46%;
+            }}
+            .wl-floating-butterflies .wl-bf i {{
+                position: absolute;
+                left: 50%;
+                top: 1px;
+                width: 2px;
+                height: 54%;
+                transform: translateX(-50%);
+                border-radius: 999px;
+                background: linear-gradient(180deg, #3f6212, #166534 58%, rgba(20, 83, 45, 0.78));
+            }}
+            .wl-floating-butterflies .wl-bf i::before,
+            .wl-floating-butterflies .wl-bf i::after {{
+                content: "";
+                position: absolute;
+                top: 3px;
+                width: 20px;
+                height: 2px;
+                border-radius: 999px;
+                background: linear-gradient(90deg, #3f6212, #15803d 68%, rgba(21, 128, 61, 0.72));
+            }}
+            .wl-floating-butterflies .wl-bf i::before {{
+                right: 0;
+                transform: rotate(-46deg);
+                transform-origin: 100% 50%;
+            }}
+            .wl-floating-butterflies .wl-bf i::after {{
+                left: 0;
+                transform: rotate(46deg);
+                transform-origin: 0% 50%;
+            }}
+            .wl-floating-butterflies .wl-bf b {{
+                position: absolute;
+                top: -1px;
+                left: 55%;
+                width: 16px;
+                height: 10px;
+                border-radius: 88% 8% 82% 14%;
+                background: linear-gradient(135deg, #86efac, #22c55e 42%, #166534 100%);
+                transform: rotate(-30deg);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 3px rgba(22, 101, 52, 0.18);
+            }}
+            .wl-floating-butterflies .wl-bf b::after {{
+                content: "";
+                position: absolute;
+                left: 3px;
+                top: 4px;
+                width: 10px;
+                height: 1px;
+                background: rgba(20, 83, 45, 0.4);
+                transform: rotate(-18deg);
+                border-radius: 999px;
+            }}
+            @keyframes wlButterflyFloat {{
+                0% {{ transform: translate3d(0, 0, 0) rotate(-4deg) scale(0.98); }}
+                25% {{ transform: translate3d(18px, -22px, 0) rotate(4deg) scale(1.04); }}
+                50% {{ transform: translate3d(-14px, -48px, 0) rotate(-3deg) scale(1); }}
+                75% {{ transform: translate3d(16px, -20px, 0) rotate(3deg) scale(1.03); }}
+                100% {{ transform: translate3d(0, 0, 0) rotate(-4deg) scale(0.98); }}
+            }}
+            .block-container,
+            section[data-testid="stSidebar"],
+            div[data-testid="stAppViewContainer"] > .main {{
+                position: relative;
+                z-index: 1;
+            }}
         </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+        <div class="wl-floating-butterflies" aria-hidden="true">
+            <span class="wl-bf" style="left:5%;top:82%;--dur:21s;--delay:-1.5s;--c1:#dc2626;--c2:#991b1b;--c3:#450a0a;"><i></i><b></b></span>
+            <span class="wl-bf" style="left:17%;top:64%;--dur:17s;--delay:-6s;--c1:#b91c1c;--c2:#7f1d1d;--c3:#450a0a;"><i></i><b></b></span>
+            <span class="wl-bf" style="left:29%;top:88%;--dur:23s;--delay:-2s;--c1:#e11d48;--c2:#9f1239;--c3:#4c0519;"><i></i><b></b></span>
+            <span class="wl-bf" style="left:43%;top:70%;--dur:19s;--delay:-8.5s;--c1:#dc2626;--c2:#991b1b;--c3:#450a0a;"><i></i><b></b></span>
+            <span class="wl-bf" style="left:56%;top:84%;--dur:20s;--delay:-3.2s;--c1:#b91c1c;--c2:#7f1d1d;--c3:#450a0a;"><i></i><b></b></span>
+            <span class="wl-bf" style="left:69%;top:62%;--dur:18s;--delay:-10.2s;--c1:#e11d48;--c2:#9f1239;--c3:#4c0519;"><i></i><b></b></span>
+            <span class="wl-bf" style="left:81%;top:86%;--dur:24s;--delay:-4.7s;--c1:#dc2626;--c2:#991b1b;--c3:#450a0a;"><i></i><b></b></span>
+            <span class="wl-bf" style="left:92%;top:66%;--dur:16s;--delay:-9.3s;--c1:#b91c1c;--c2:#7f1d1d;--c3:#450a0a;"><i></i><b></b></span>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -4050,13 +4418,14 @@ def render_home_page(selected_profile: Optional[sqlite3.Row], active_category: s
         featured_row = all_rows[day_index]
     latest_story = get_last_story()
 
+    featured_title = clean_story_title(story_of_the_day["title"], "Magical Story")
     st.markdown(
         f"""
         <div class='story-hero'>
             <div class='mini-pill'>MAGICAL STORYBOOK ADVENTURE</div>
             <div class='story-hero-title'>Welcome to a magical world of stories</div>
             <div class='story-hero-subtitle'>Read, imagine, and grow with every tale. {escape(welcome_name)} can explore gentle bedtime journeys, playful adventures, and brain-boosting questions in one cozy reading space.</div>
-            <div style='margin-top:0.85rem; color:#4338ca; font-weight:800;'>Featured today: {escape(story_of_the_day['title'])} • {escape(story_of_the_day['blurb'])}</div>
+            <div style='margin-top:0.85rem; color:#4338ca; font-weight:800;'>Featured today: {escape(featured_title)} • {escape(story_of_the_day['blurb'])}</div>
             <div class='story-hero-decor'>
                 <span style='top:14px; right:-100px;'>⭐</span>
                 <span style='top:74px; right:-80px;'>☁️</span>
@@ -4078,7 +4447,7 @@ def render_home_page(selected_profile: Optional[sqlite3.Row], active_category: s
         tile1,
         "📖",
         "Featured Story",
-        f"{story_of_the_day['title']} • {story_of_the_day['blurb']}",
+        f"{featured_title} • {story_of_the_day['blurb']}",
         "Open Featured Story",
         "home_featured_story_tile",
     ):
@@ -4146,7 +4515,7 @@ def render_home_page(selected_profile: Optional[sqlite3.Row], active_category: s
                 st.markdown(
                     f"""
                     <div class='panel'>
-                        <b>{escape(row['title'])}</b><br>
+                        <b>{escape(clean_story_title(row['title'], 'Story'))}</b><br>
                         <span style='font-size:0.9rem;'>Category: {escape(story_category_from_row(row))} • Reads: {row['read_count']} • Favorite: {'Yes' if row['favorite'] else 'No'}</span>
                     </div>
                     """,
@@ -4207,7 +4576,7 @@ def home_screen() -> None:
         st.success(f"Added {added} new stories to Library.")
 
     if last_story:
-        st.caption(f"Last story: {last_story['title']} • {last_story['story_type']} • {last_story['mode']}")
+        st.caption(f"Last story: {clean_story_title(last_story['title'], 'Story')} • {last_story['story_type']} • {last_story['mode']}")
     else:
         st.caption("Create a first story to unlock quick continue reading.")
 
@@ -4246,10 +4615,26 @@ def home_screen() -> None:
 
 
 def render_inline_pronunciation(label: str, text: str, key: str) -> None:
-        c1, c2 = st.columns([1.2, 2.2])
-        if c1.button(label, key=key, use_container_width=True):
-                st.audio(tts_preview_url(text), format="audio/mp3")
-        c2.caption(text)
+    c1, c2 = st.columns([1.2, 2.2])
+    if c1.button(label, key=key, use_container_width=True):
+        safe_text = json.dumps(str(text or ""))
+        components.html(
+            f"""
+            <script>
+            const spokenText = {safe_text};
+            const synth = window.speechSynthesis;
+            if (synth) {{
+                synth.cancel();
+                const utter = new SpeechSynthesisUtterance(spokenText);
+                utter.rate = 0.95;
+                utter.pitch = 1.02;
+                synth.speak(utter);
+            }}
+            </script>
+            """,
+            height=0,
+        )
+    c2.caption(text)
 
 
 def render_vocabulary_boost(story: Dict[str, Any], story_id: int) -> None:
@@ -4276,7 +4661,12 @@ def render_listening_section(story: Dict[str, Any], story_id: int, page: Dict[st
     auto_voice = pick_auto_voice_label(story)
     st.caption("Narrator is auto-matched to the story for natural playback.")
 
-    a1, a2 = st.columns(2)
+    voice_options = ["Auto (Smart Match)"] + [profile["label"] for profile in VOICE_PROFILES]
+    saved_voice = str(st.session_state.get("selected_voice", "Auto (Smart Match)") or "Auto (Smart Match)")
+    if saved_voice not in voice_options:
+        saved_voice = "Auto (Smart Match)"
+
+    a1, a2, a3 = st.columns(3)
     with a1:
         narration_speed = st.slider(
             "Narration speed",
@@ -4293,8 +4683,14 @@ def render_listening_section(story: Dict[str, Any], story_id: int, page: Dict[st
             value=float(st.session_state.get("narration_volume", 0.9)),
             step=0.05,
         )
+    with a3:
+        selected_voice = st.selectbox(
+            "Voiceover option",
+            voice_options,
+            index=voice_options.index(saved_voice),
+            key=f"listen_voice_select_{story_id}",
+        )
 
-    selected_voice = "Auto (Smart Match)"
     st.session_state.selected_voice = selected_voice
     st.session_state.auto_selected_voice = auto_voice
     st.session_state.narration_speed = narration_speed
@@ -4312,44 +4708,49 @@ def render_listening_section(story: Dict[str, Any], story_id: int, page: Dict[st
     st.caption(f"Page audio status: {status} • Engine: {engine} • Delivery: {mood} • Voice: {voice_profile['label']} (Auto suggestion: {auto_voice})")
 
     audio_path = audio_payload.get("audio_path")
+    error_message = str(audio_payload.get("error_message", "") or "").strip()
+    auto_play_current_page = bool(st.session_state.get("listen_autoplay_once", False))
     if audio_path:
         try:
-            st.audio(audio_path, format="audio/mp3")
+            auto_advance_token = ""
+            if page_index < total_pages - 1 and st.session_state.get("current_mode", "read") == "listen":
+                auto_advance_token = f"{story_id}:{page_index}"
+            rendered_player = render_listen_audio_player(
+                audio_path=audio_path,
+                widget_key=f"{story_id}_{page_index}",
+                auto_play=auto_play_current_page,
+                auto_advance_token=auto_advance_token,
+            )
+            if not rendered_player:
+                st.audio(audio_path, format="audio/mp3")
         except Exception:
             st.warning("Premium audio playback had an issue. Falling back to browser voice.")
             audio_path = None
     if not audio_path:
-        st.warning("Premium narration is unavailable for this page. Add a TTS API key in Parent Zone to enable listening.")
+        if error_message:
+            st.warning(error_message)
+        else:
+            st.warning("Premium narration is unavailable for this page. Using browser voice controls below.")
+        if page.get("type") == "image":
+            fallback_text = f"Illustration moment: {page.get('caption', 'Take a breath and imagine this scene.')}"
+        else:
+            fallback_text = str(page.get("text", "")).strip()
+            dialogue_line = str(page.get("dialogue", "")).strip()
+            if dialogue_line:
+                fallback_text = f"{fallback_text} {dialogue_line}".strip()
+        render_speech_widget(
+            text=fallback_text,
+            voice_profile=voice_profile,
+            widget_key=f"listen_fallback_{story_id}_{page_index}",
+            title="Play with browser voice",
+            auto_play=False,
+        )
 
     # Browser speech fallback is intentionally disabled to avoid script-runtime errors
     # and accidental voice mismatches.
     st.session_state.listen_autoplay_once = False
 
-    b1, b2, b3 = st.columns([1, 1, 2])
-    with b1:
-        if st.button("Previous page ⬅", key=f"audio_prev_{story_id}_{page_index}", disabled=page_index == 0):
-            play_sound(PAGE_TURN_SOUND, "page_turn_audio_prev")
-            st.session_state.page_turning = True
-            st.session_state.page_turn_target = max(0, page_index - 1)
-            st.rerun()
-    with b2:
-        if st.button("Next page ➜", key=f"audio_next_{story_id}_{page_index}", disabled=page_index >= total_pages - 1):
-            play_sound(PAGE_TURN_SOUND, "page_turn_audio_next")
-            st.session_state.page_turning = True
-            st.session_state.page_turn_target = min(total_pages - 1, page_index + 1)
-            st.rerun()
-    with b3:
-        ambience_enabled = st.toggle("Ambience on/off", value=bool(st.session_state.get("ambience_enabled", False)), key=f"ambience_toggle_{story_id}")
-        st.session_state.ambience_enabled = ambience_enabled
-        ambience_default = get_ambience_for_story(story)
-        ambience_choice = st.selectbox(
-            "Scene ambience",
-            list(AMBIENCE_TRACKS.keys()),
-            index=list(AMBIENCE_TRACKS.keys()).index(ambience_default) if ambience_default in AMBIENCE_TRACKS else 0,
-            key=f"ambience_choice_{story_id}",
-        )
-        if ambience_enabled and AMBIENCE_TRACKS.get(ambience_choice):
-            render_ambience_track(ambience_choice)
+    st.session_state.ambience_enabled = False
 
 
 def render_quiz_panel(story: Dict[str, Any], story_id: int) -> None:
@@ -4831,7 +5232,10 @@ def story_player_screen() -> None:
         recent_rows = list_stories("recent")
         if recent_rows:
             st.markdown("#### Quick Open")
-            options = {f"{r['title']}  •  {r['story_type']}": int(r["id"]) for r in recent_rows[:8]}
+            options = {
+                f"{clean_story_title(r['title'], 'Story')}  •  {r['story_type']}  •  id {int(r['id'])}": int(r["id"])
+                for r in recent_rows[:8]
+            }
             selected_label = st.selectbox(
                 "Pick a recent story",
                 list(options.keys()),
@@ -4873,6 +5277,22 @@ def story_player_screen() -> None:
     total_pages = max(1, int(st.session_state.get("total_pages", 0) or 0))
     current_page_index = min(max(0, st.session_state.get("current_page_index", 0)), total_pages - 1)
 
+    auto_advance_signal = str(st.query_params.get("autonext", "") or "").strip()
+    expected_signal = f"{sid}:{current_page_index}"
+    if auto_advance_signal:
+        st.query_params.clear()
+        if (
+            auto_advance_signal == expected_signal
+            and st.session_state.get("current_mode", "read") == "listen"
+            and current_page_index < total_pages - 1
+        ):
+            st.session_state.current_page_index = current_page_index + 1
+            st.session_state.listen_autoplay_once = True
+            if st.session_state.story_pages:
+                target_page = st.session_state.story_pages[current_page_index + 1]
+                st.session_state.scene_index = int(target_page.get("scene_index", current_page_index + 1))
+            st.rerun()
+
     if st.session_state.page_turning and st.session_state.page_turn_target is not None:
         target_page_index = min(max(0, int(st.session_state.page_turn_target)), total_pages - 1)
         if target_page_index != current_page_index:
@@ -4888,7 +5308,7 @@ def story_player_screen() -> None:
 
     st.markdown(
         f"""
-        <div class='story-title-cute'>{escape(str(story.get('title', 'Magical Story')))}</div>
+        <div class='story-title-cute'>{escape(clean_story_title(story.get('title', 'Magical Story'), 'Magical Story'))}</div>
         <div class='story-subtitle-cute'>{escape(str(story.get('subtitle', '')))}</div>
         """,
         unsafe_allow_html=True,
@@ -4958,7 +5378,7 @@ def story_player_screen() -> None:
             st.markdown(
                 f"""
                 <div class='panel'>
-                    <b>{recommendation['title']}</b><br>
+                    <b>{escape(clean_story_title(recommendation['title'], 'Story'))}</b><br>
                     <span style='font-size:0.9rem;'>Category: {recommendation['story_type']} • Mode: {recommendation['mode']}</span>
                 </div>
                 """,
@@ -4989,7 +5409,7 @@ def story_player_screen() -> None:
         else:
             st.download_button("Download PDF", data=pdf_bytes, file_name="story.pdf", mime="application/pdf")
     with d4:
-        share_text = f"Read this magical story: {story['title']}"
+        share_text = f"Read this magical story: {clean_story_title(story.get('title', 'Magical Story'), 'Magical Story')}"
         parent_email = get_setting("parent_email", "")
         mailto = f"mailto:{parent_email}?subject={APP_NAME}%20Share&body={share_text}"
         st.link_button("Share with Parent", mailto)
@@ -5021,7 +5441,7 @@ def library_screen() -> None:
                     st.markdown(
                         f"""
                         <div class='panel'>
-                            <b>{row['title']}</b><br>
+                            <b>{escape(clean_story_title(row['title'], 'Story'))}</b><br>
                             <span style='font-size:0.85rem;'>Type: {row['story_type']} • Mode: {row['mode']} • Moral: {row['moral']}</span>
                         </div>
                         """,
@@ -5076,16 +5496,25 @@ def parent_zone_screen() -> None:
         st.caption("Set this once to generate sharper, richer scene images for every page.")
 
     if st.button("Save Parent Settings"):
+        existing_tts_openai_key = str(get_setting("tts_openai_key", "") or "")
+        existing_tts_elevenlabs_key = str(get_setting("tts_elevenlabs_key", "") or "")
+        existing_image_openai_key = str(get_setting("image_openai_key", "") or "")
+
+        # Prevent accidental key loss when users click save with password fields left blank.
+        resolved_tts_openai_key = tts_openai_key.strip() or existing_tts_openai_key
+        resolved_tts_elevenlabs_key = tts_elevenlabs_key.strip() or existing_tts_elevenlabs_key
+        resolved_image_openai_key = image_openai_key.strip() or existing_image_openai_key
+
         set_setting("parent_email", parent_email)
         set_setting("max_scenes", str(max_scenes))
         set_setting("strict_mode", "true" if strict_mode else "false")
         set_setting("tts_provider", tts_provider)
-        set_setting("tts_openai_key", tts_openai_key.strip())
-        set_setting("tts_elevenlabs_key", tts_elevenlabs_key.strip())
+        set_setting("tts_openai_key", resolved_tts_openai_key)
+        set_setting("tts_elevenlabs_key", resolved_tts_elevenlabs_key)
         set_setting("tts_openai_model", tts_openai_model.strip() or "gpt-4o-mini-tts")
         set_setting("tts_elevenlabs_model", tts_elevenlabs_model.strip() or "eleven_multilingual_v2")
         set_setting("image_provider", image_provider)
-        set_setting("image_openai_key", image_openai_key.strip())
+        set_setting("image_openai_key", resolved_image_openai_key)
         set_setting("image_model", image_model.strip() or "gpt-image-1")
         st.success("Parent settings saved.")
 
@@ -5149,6 +5578,7 @@ def parent_zone_screen() -> None:
 def main() -> None:
     init_db()
     seed_library_if_empty()
+    remove_numeric_suffix_from_stored_titles()
     init_state()
     style_app(st.session_state.platform_mode)
     render_header(st.session_state.platform_mode)
