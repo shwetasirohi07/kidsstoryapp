@@ -12,6 +12,10 @@ services:
         value: "/data"
       - key: STORYSPARK_DB_PATH
         value: "/data/storyspark.db"
+      - key: OPENAI_IMAGE_API_KEY
+        sync: false
+      - key: OPENAI_TTS_API_KEY
+        sync: false
       - key: ELEVENLABS_API_KEY
         sync: false
       - key: OPENAI_API_KEY

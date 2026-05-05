@@ -1439,16 +1439,12 @@ def get_tts_provider_settings() -> Dict[str, str]:
             try:
                 value = str(st.secrets.get(name, "") or "")
                 if value.strip():
-                    print(f"[DEBUG Secrets] Found {name}: {value[:20]}...")
                     return value.strip()
-            except Exception as e:
-                print(f"[DEBUG Secrets] Exception loading {name}: {e}")
+            except Exception:
                 value = ""
             env_val = str(os.getenv(name, "") or "").strip()
             if env_val:
-                print(f"[DEBUG Env] Found {name} from env")
                 return env_val
-        print(f"[DEBUG Secrets/Env] No values found for {names}")
         return ""
 
     provider = str(get_setting("tts_provider", "Browser Speech")
@@ -1602,8 +1598,6 @@ def generate_elevenlabs_tts_audio(
         return None, "ElevenLabs key is missing."
     response: Optional[requests.Response] = None
     try:
-        print(
-            f"[DEBUG ElevenLabs] Calling API with voice_id={voice_id}, model={model}, style={style}, stability={stability}, text_len={len(text)}")
         response = requests.post(
             f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
             headers={
@@ -1624,18 +1618,14 @@ def generate_elevenlabs_tts_audio(
             timeout=35,
         )
         response.raise_for_status()
-        print(f"[DEBUG ElevenLabs] SUCCESS: {len(response.content)} bytes")
         return response.content, ""
-    except Exception as exc:
-        print(f"[DEBUG ElevenLabs] FAILED: {exc}")
+    except Exception:
         return None, describe_tts_api_error(response, "ElevenLabs")
 
 
 def get_or_generate_provider_audio(text: str, voice_label: str, delivery: Dict[str, Any]) -> Dict[str, Any]:
     settings = get_tts_provider_settings()
     provider = settings["provider"]
-    print(
-        f"[DEBUG TTS] Provider: {provider}, Has ElevenLabs Key: {bool(settings.get('elevenlabs_key'))}, Has OpenAI Key: {bool(settings.get('openai_key'))}")
     if provider not in TTS_PROVIDERS or provider == "Browser Speech":
         return {"status": "fallback", "engine": "browser_speech", "audio_path": None, "error_message": ""}
 
