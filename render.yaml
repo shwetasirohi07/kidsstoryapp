@@ -8,6 +8,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"
+      - key: STORYSPARK_STORAGE_ROOT
+        value: "/data"
+      - key: STORYSPARK_DB_PATH
+        value: "/data/storyspark.db"
       - key: ELEVENLABS_API_KEY
         sync: false
       - key: OPENAI_API_KEY

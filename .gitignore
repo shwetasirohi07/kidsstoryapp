@@ -6,6 +6,7 @@ __pycache__/
 
 # Database contains API keys – never push
 storyspark.db
+.streamlit/secrets.toml
 
 # Local caches – large binary files
 .image_cache/
